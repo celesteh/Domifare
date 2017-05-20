@@ -1,7 +1,7 @@
 Domifare {
 
-	var syllables, key, responder, <vars, <numbers, lang, word, lastrecv, active, data, >onsetFunc, <>onsets,
-	paused;
+	var syllables, key, responder, <vars, <numbers, word, lastrecv, active, data, >onsetFunc, <>onsets,
+	paused, syn, <>clock;
 
 	*initClass{
 
@@ -36,7 +36,9 @@ Domifare {
 		}
 	}
 
-	init {|server|
+	init {|server, clock|
+
+		this.clock = clock;
 
 		syllables = [\Do, \Re, \Mi, \Fa, \So, \La, \Si];
 		key = Key(Scale.major).change(chromatic: 3); // C maj
@@ -111,9 +113,11 @@ Domifare {
 		word = '';
 		lastrecv = 0;
 
-		server.noNil.if({
-			this.server_(server);
+		server.isNil.if({
+			server = Server.default;
 		});
+		this.server_(server);
+
 
 	}
 
@@ -121,39 +125,58 @@ Domifare {
 		// loop is nil stop everything
 		// loop is symbol, map to var
 		// loop is var, stop that loop
+		this.pr_call(loop, 'stop');
 	}
 
 	play {|loop|
 		// loop is nil start everything
 		// loop is symbol, map to var
 		// loop is var, start that loop
+		this.pr_call(loop, 'play');
 	}
 
 	next {|loop|
 		// loop is nil start everything
 		// loop is symbol, map to var
 		// loop is var, start that loop
+		this.pr_call(loop, 'next');
 	}
 
 	prev {|loop|
 		// loop is nil start everything
 		// loop is symbol, map to var
 		// loop is var, start that loop
+		this.pr_call(loop, 'prev');
 	}
 
 	rand {|loop|
 		// loop is nil start everything
 		// loop is symbol, map to var
 		// loop is var, start that loop
+		this.pr_call(loop, 'rand');
 	}
 
 	shake {|loop|
 		// loop is nil start everything
 		// loop is symbol, map to var
 		// loop is var, start that loop
+		this.pr_call(loop, 'shake');
 	}
 
 	pr_call{|loop, message|
+		loop.isNil.if({ // pass the message to everything if loop is nil
+			vars.do({|item|
+				Message(item, message.asSymbol);
+			});
+		} , {
+			// otherwise, pass the message to the appropriate loop
+			loop.isKindOf(DomifareLoop).not({
+				loop = vars[loop.asSymbol];
+			});
+			loop.notNil.if({
+				Message(loop, message.asSymbol)
+			})
+		});
 	}
 
 
@@ -168,90 +191,93 @@ Domifare {
 
 	server_{|server|
 
-		// out with the old (if it exists)
-		OSCdef(\domifare_in).free;
+		server.waitForBoot({
+			// PUT THIS IN A GUI
+			syn = Synth(\domifare_input, [\gate, 1, \in, 0, \thresh, 0.2, \space, 0.5, \longspace, 2],server);
+			// out with the old (if it exists)
+			OSCdef(\domifare_in).free;
 
 
 
-		// This needs re-writing to deal with the command class
+			// This needs re-writing to deal with the command class
 
-		OSCdef(\domifare_in, {|msg, time, addr, recvPort|
-			var tag, node, id, value, letter, result;
+			OSCdef(\domifare_in, {|msg, time, addr, recvPort|
+				var tag, node, id, value, letter, result;
 
-			#tag, node, id, value = msg;
-			case
-			{ id ==0 } { /* pitch */
-				paused.not.if({
-					letter = syllables.wrapAt(key.freqToDegree(value.asInt));
-					// HARDCODED NUMBER ALERT
-					((time - lastrecv).abs > 0.1).if({
-						// ignore things that follow too close on
-						word = word ++ letter;
-						lastrecv = time;
-					});
-				});
-			}
-			{ id ==1 } { /* onset */
-
-				onsetFunc.notNil.if({
-					onsetFunc.value(time);
-					onsets = onsets.add(time);
-				}, {
-					onsets = [];
-				});
-
-			}
-			{ id ==3 } { /* space */
-				paused.not.if({
-					active.isNil.if({
-						// we are on a new command
-						active = DomifareCommand(word);
-						active.isNil.if({
-							active = vars[word];
-							// do recorder function immediately
-							// pause this OSCdef
+				#tag, node, id, value = msg;
+				case
+				{ id ==0 } { /* pitch */
+					paused.not.if({
+						letter = syllables.wrapAt(key.freqToDegree(value.asInt));
+						// HARDCODED NUMBER ALERT
+						((time - lastrecv).abs > 0.1).if({
+							// ignore things that follow too close on
+							word = word ++ letter;
+							lastrecv = time;
 						});
+					});
+				}
+				{ id ==1 } { /* onset */
+
+					onsetFunc.notNil.if({
+						onsetFunc.value(time);
+						onsets = onsets.add(time);
+					}, {
+						onsets = [];
+					});
+
+				}
+				{ id ==3 } { /* space */
+					paused.not.if({
 						active.isNil.if({
-							// ERROR
+							// we are on a new command
+							active = DomifareCommand(word);
+							active.isNil.if({
+								active = vars[word];
+								// do recorder function immediately
+								// pause this OSCdef
+							});
+							active.isNil.if({
+								// ERROR
+							} , {
+								//line = [active];
+							});
 						} , {
-							//line = [active];
-						});
-					} , {
-						// we're on an active command
-						// try to match the word to known data or pass the symbol if we can't
-						data = numbers[word];
-						data.isNil.if({
-							data = vars[word];
+							// we're on an active command
+							// try to match the word to known data or pass the symbol if we can't
+							data = numbers[word];
 							data.isNil.if({
-								data = word;
-						})});
-						result = active.var_(data);
-						// Error = bad data
-						result.isKindOf(Error).if({
-							result.errorString.postln;
-							result = true;
-						});
-						// true = command is done
-						result.if({ // command is finished
-							active = nil
+								data = vars[word];
+								data.isNil.if({
+									data = word;
+							})});
+							result = active.var_(data);
+							// Error = bad data
+							result.isKindOf(Error).if({
+								result.errorString.postln;
+								result = true;
+							});
+							// true = command is done
+							result.if({ // command is finished
+								active = nil
+							});
 						});
 					});
-				});
-			}
-			{ id ==4 } { /* EOL */
-				paused.not.if({
-					active.noNil.if({
-						result = active.eval;
-						result.isKindOf(Error).if({
-							result.errorString.postln;
+				}
+				{ id ==4 } { /* EOL */
+					paused.not.if({
+						active.noNil.if({
+							result = active.eval;
+							result.isKindOf(Error).if({
+								result.errorString.postln;
+							});
+							active = nil;
 						});
-						active = nil;
 					});
-				});
 
-			}
-		}, '/tr', server.addr);
-
+				}
+			}, '/tr', server.addr);
+		});
 	}
 
 
@@ -261,12 +287,12 @@ Domifare {
 DomifareCommand {
 
 	classvar dict;
+	var <name, <minargs, <maxargs, types, >func, launcher, vars, subcommand;
 
 	*initClass {
 		dict = IdentityDictionary.new
 	}
 
-	var <name, <minargs, <maxargs, types, >func, launcher, vars, subcommand;
 
 
 	*new{|name, minargs, maxargs, types, func, launcher|
@@ -274,8 +300,8 @@ DomifareCommand {
 		command = dict[name];
 		command.isNil.if({
 			minargs.notNil.if({ // don't create a new one for nil values
-				command = super.newCopyArgs(name, minargs, maxargs, types, func, pause);
-				this.dict.add(name.asSymbol, commmand);
+				command = super.newCopyArgs(name, minargs, maxargs, types, func, launcher);
+				this.dict.add(name.asSymbol, command);
 			});
 		});
 		^command;
@@ -293,7 +319,7 @@ DomifareCommand {
 			ret = subcommand.var_(newvar);
 		} , {
 			newindex = vars.size;
-			type = types[index];
+			type = types[newindex];
 			// check the types
 			case
 			{ (type == \var) || (type == DomifareLoop) } {
@@ -362,6 +388,141 @@ DomifareCommand {
 }
 
 DomifareLoop {
+
+	var <name, parent, <pbind, pdef, <>downbeat= -9, <>upbeat= -12, <>offbeat = -13, <>rest= \rest, isplay,
+	<>beatfigures, <>restfigures, <>playf, <>stopf, loops, index;
+
+	*new {|name,parent, pbind|
+		^super.new.init(name, parent, pbind)
+	}
+
+	init{|na, pa pb|
+		name = na;
+		parent = pa;
+		pbind = pb;
+		loops = [];
+		index = -1;
+	}
+
+
+	pdef {
+		pdef.isNil.if({
+			pdef = Pdef(name);
+		});
+		^pdef
+	}
+
+
+	next {
+
+		index = (index + 1).min(loops.size -1);
+		^loops[index];
+
+	}
+
+	prev {
+
+		index = (index-1).max((loops.size > 0).if({0}, {-1}));
+		^loops[index];
+
+	}
+
+	last{
+		index = loops.size-1;
+		^loops[index];
+	}
+
+	rand {
+
+		index = loops.size.rand;
+		^loops[index];
+
+	}
+
+
+	loop {
+		^loops[index];
+	}
+
+
+	play {|clock, quant ...args|
+
+		var pd;
+
+		playf.notNil.if({
+			playf.value(*args)
+		});
+
+		pd = this.pdef();
+
+		pd.notNil.if({
+
+			clock.isKindOf(ExternalClock).if({
+				isplay.isNil.if({ isplay = false });
+				isplay.not.if({
+					"external".postln;
+					pd.playExt(clock, nil, quant);
+					isplay = true;
+				});
+			} , {
+				"tempo".postln;
+				pd.isPlaying.not.if({
+					pd.play(clock, nil, quant);
+				});
+			});
+		})
+
+	}
+
+	stop {|...args|
+		var pd;
+
+		stopf.notNil.if({
+			stopf.value(*args)
+		});
+
+		pd = this.pdef();
+		pd.notNil.if({pd.stop();})
+	}
+
+
+	pause {
+		var pd;
+
+		pd = this.pdef();
+		pd.notNil.if({pd.pause();})
+
+	}
+
+
+
+	isPlaying {
+
+		var pd, ret;
+
+		pd = pdef.notNil.if ({ pdef }, { Pdef(name) });
+		pd.isNil.if ({ ret = false; },
+			{
+				ret = isplay;
+				ret.isNil.if ({
+					ret = pd.isPlaying;
+				});
+		});
+		ret.isNil.if ({ ret = false; });
+
+		^ret;
+
+	}
+
+	volume_ {|func|
+		downbeat= func.value(downbeat);
+		upbeat=func.value(upbeat);
+		offbeat=func.value(offbeat);
+	}
+
+	vol_{|f| this.volume_(f) }
+
+
 }
 
 
