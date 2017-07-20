@@ -268,7 +268,7 @@ Domifare {
 				}
 				{ id ==3 } { /* EOL */
 					paused.not.if({
-						active.noNil.if({
+						active.notNil.if({
 							result = active.eval;
 							result.isKindOf(Error).if({
 								result.errorString.postln;
@@ -343,7 +343,7 @@ DomifareCommand {
 				(newvar.isKindOf(Symbol) || newvar.isKindOf(String)).if({
 					newvar = DomifareCommand(newvar.asSymbol);
 				});
-				newvar.noNil.if({
+				newvar.notNil.if({
 					newvar.isKindOf(DomifareCommand).not.if({
 						ret = Error("command not found.");
 					}, {
