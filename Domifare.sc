@@ -263,6 +263,7 @@ Domifare {
 								active = nil
 							});
 						});
+						word = '';
 					});
 				}
 				{ id ==3 } { /* EOL */
@@ -274,6 +275,7 @@ Domifare {
 							});
 							active = nil;
 						});
+						word = '';
 					});
 
 				}
