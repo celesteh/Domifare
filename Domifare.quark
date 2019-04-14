@@ -1,0 +1,9 @@
+(
+  name: "Domifare",
+  summary: "A live coding language for music that is entered by playing or singing commands in solresol.",
+  version: "0.0.0a",
+  schelp: "N/A",
+  dependencies: ["TuningLib"],
+  license: "GPL",
+  copyright: "Charles Hutchins, Holger Balweg 2019"
+)
