@@ -46,6 +46,7 @@ Domifare {
 		vars = (solfasire:nil, solfasisol:nil, soldosifa:nil);
 		numbers = (redodo: 1, remimi:2, refafa: 3, resolsol: 4, relala: 5, resisi: 6, mimido: 7, mimire:8);
 
+		paused = false;
 
 		/*
 		// replace with command class below
@@ -212,7 +213,7 @@ Domifare {
 						// HARDCODED NUMBER ALERT
 						((time - lastrecv).abs > 0.1).if({
 							// ignore things that follow too close on
-							word = word ++ letter;
+							word = (word ++ letter).postln;
 							lastrecv = time;
 						});
 					});
@@ -227,7 +228,7 @@ Domifare {
 					});
 
 				}
-				{ id ==3 } { /* space */
+				{ id ==2 } { /* space */
 					paused.not.if({
 						active.isNil.if({
 							// we are on a new command
@@ -262,17 +263,19 @@ Domifare {
 								active = nil
 							});
 						});
+						word = '';
 					});
 				}
-				{ id ==4 } { /* EOL */
+				{ id ==3 } { /* EOL */
 					paused.not.if({
-						active.noNil.if({
+						active.notNil.if({
 							result = active.eval;
 							result.isKindOf(Error).if({
 								result.errorString.postln;
 							});
 							active = nil;
 						});
+						word = '';
 					});
 
 				}
@@ -301,7 +304,7 @@ DomifareCommand {
 		command.isNil.if({
 			minargs.notNil.if({ // don't create a new one for nil values
 				command = super.newCopyArgs(name, minargs, maxargs, types, func, launcher);
-				this.dict.add(name.asSymbol, command);
+				dict.put(name.asSymbol, command);
 			});
 		});
 		^command;
@@ -340,7 +343,7 @@ DomifareCommand {
 				(newvar.isKindOf(Symbol) || newvar.isKindOf(String)).if({
 					newvar = DomifareCommand(newvar.asSymbol);
 				});
-				newvar.noNil.if({
+				newvar.notNil.if({
 					newvar.isKindOf(DomifareCommand).not.if({
 						ret = Error("command not found.");
 					}, {
