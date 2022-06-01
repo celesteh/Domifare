@@ -1,7 +1,8 @@
 Domifare {
 
 	var syllables, key, responder, <vars, <numbers, word, lastrecv, active, data, >onsetFunc, <>onsets,
-	paused, syn, <>clock;
+	paused, syn, <>clock, gui, <thresh, <space, <longspace, <minspace, <threshc, <spacec, <longspacec,
+	<minspacec, <line, <linec;
 
 	*initClass{
 
@@ -15,7 +16,7 @@ Domifare {
 
 				chain = FFT(LocalBuf(2048), input);
 				onset = Onsets.kr(chain, odftype:\phase);//odftype:\wphase);
-				#fft_pitch, hasfreq = Pitch.kr(input);
+				#fft_pitch, hasfreq = Pitch.kr(input, ampThreshold:thresh);
 				paused = DetectSilence.ar(input, thresh, space);
 				linebreak = DetectSilence.ar(input, thresh, longspace);
 
@@ -36,7 +37,24 @@ Domifare {
 		}
 	}
 
-	init {|server, clock|
+
+		*guiClass { "guiclass".postln;
+		^DomifareGui}
+
+	guiClass {
+		^DomifareGui}
+
+	*new {|server, clock|
+
+		^super.new.init(server, clock);
+	}
+
+
+	init {|srv, clock|
+
+		var assemblemvc;
+
+		"init Domifare".postln;
 
 		this.clock = clock;
 
@@ -46,7 +64,25 @@ Domifare {
 		vars = (solfasire:nil, solfasisol:nil, soldosifa:nil);
 		numbers = (redodo: 1, remimi:2, refafa: 3, resolsol: 4, relala: 5, resisi: 6, mimido: 7, mimire:8);
 
-		paused = false;
+		paused = true;
+
+
+		// Values used for parsing are passed to a synthdef and chageable via a GUI, so we're going an MVC thing
+		//assemblemvc = {|ref, syntharg|
+		//	var controller;
+		//	controller = SimpleController(ref);
+		//	controller.put(\value, {|theChanger, what moreArgs|
+		//		syn.notNil.if({
+		//			syn.set(syntharg, theChanger.value);
+		//		});
+		//	});
+		//	controller;
+		//};
+
+
+
+		minspace = Ref(0.1);
+		line = DomifareLine();
 
 		/*
 		// replace with command class below
@@ -66,6 +102,8 @@ Domifare {
 		larefami: [\larefami, 2, 2, [\number, \operator], nil] // X in 8 chance of doing the command
 		);
 		*/
+
+		//name, minargs, maxargs, types, func, launcher
 
 		DomifareCommand(\larelasi, 1, 1, [\var], {|lang, varname|
 			// add a variable
@@ -114,11 +152,12 @@ Domifare {
 		word = '';
 		lastrecv = 0;
 
-		server.isNil.if({
-			server = Server.default;
+		srv.isNil.if({
+			srv = Server.default;
 		});
-		this.server_(server);
+		this.server_(srv);
 
+		//this.gui;
 
 	}
 
@@ -193,8 +232,21 @@ Domifare {
 	server_{|server|
 
 		server.waitForBoot({
+
+
+			thresh = Bus.control(server, 1).set(0.2);
+			space = Bus.control(server, 1).set(0.5);
+			longspace = Bus.control(server, 1).set(2);
+
+			server.sync;
+
+			this.changed(this, this);
+
 			// PUT THIS IN A GUI
-			syn = Synth(\domifare_input, [\gate, 1, \in, 0, \thresh, 0.2, \space, 0.5, \longspace, 2],server);
+			syn = Synth(\domifare_input,
+				[\gate, 1, \in, 0, \thresh, thresh.asMap, \space, space.asMap,
+					\longspace, longspace.asMap],server);
+
 			// out with the old (if it exists)
 			OSCdef(\domifare_in).free;
 
@@ -208,12 +260,14 @@ Domifare {
 				#tag, node, id, value = msg;
 				case
 				{ id ==0 } { /* pitch */
+					//"pitch".postln;
 					paused.not.if({
 						letter = syllables.wrapAt(key.freqToDegree(value.asInt));
 						// HARDCODED NUMBER ALERT
-						((time - lastrecv).abs > 0.1).if({
+						((time - lastrecv).abs > minspace.value).if({
 							// ignore things that follow too close on
 							word = (word ++ letter).postln;
+							//line.append(letter).changed(\append);
 							lastrecv = time;
 						});
 					});
@@ -264,6 +318,7 @@ Domifare {
 							});
 						});
 						word = '';
+						//line.append(" ").changed(\append);
 					});
 				}
 				{ id ==3 } { /* EOL */
@@ -276,6 +331,7 @@ Domifare {
 							active = nil;
 						});
 						word = '';
+						//line.eol.changed(\eol);
 					});
 
 				}
@@ -283,8 +339,134 @@ Domifare {
 		});
 	}
 
+	gui {
+		var ui;
+		ui = super.gui;
+		this.changed(this, this);
+		line.addDependant(ui);
+		^ui;
+	}
+
 
 }
+
+DomifareGui : ObjectGui {
+
+	var history, activeLine, sliders, textView;
+
+
+	guiBody { arg view;
+
+		var index;
+
+		//super.guiBody(view);
+
+		"in guiBody".postln;
+
+		sliders = IdentityDictionary.new();
+
+		view.class.postln;
+
+		view.startRow;
+		textView = TextView(view).autohidesScrollers_(false).font_(Font("Courier",14));
+
+
+		view.startRow;
+
+		index = \thresh;
+		sliders[index] = EZSlider(view, label:index, controlSpec:\db, action: {|ez|
+				model.thresh.set(ez.value.dbamp);
+			});
+
+		index = \space;
+		sliders[index] = EZSlider(view, label:index, controlSpec:ControlSpec(0.1, 2, 0.1), action:{|ez|
+				model.space.set(ez.value);
+			});
+
+
+		view.startRow;
+
+		index = \longspace;
+		sliders[index] = EZSlider(view, label:index, controlSpec:ControlSpec(1, 5, 1), action: {|ez|
+				model.longspace.set(ez.value.dbamp);
+			});
+
+		index = \minspace;
+		sliders[index] = EZSlider(view, label:index, controlSpec:ControlSpec(0.01, 0.2, 0.1), action:{|ez|
+				model.minspace.set(ez.value);
+			});
+
+
+		//view.layout = VLayout(
+		//	Button(view),
+			//threshslider.view,
+			//spaceslider.view,
+		//	Button(view)
+		//)
+
+		//this.update;
+
+	}
+
+
+	update { |theModel, theChanger|
+
+		//theModel.class.postln;
+
+
+		(theChanger != this).if({
+
+			"updating".postln;
+
+			theModel.isKindOf(DomifareLine).if({
+
+				theModel.postln;
+				theChanger.postln;
+
+			}, { // else normal model
+
+				sliders[\minspace].value = model.minspace.value;
+				model.thresh.get({|value| "thresh %".format(value).postln;
+					AppClock.sched(0.0,{sliders[\thresh].value = value.value.ampdb})});
+				model.space.get({|value|
+					AppClock.sched(0.0,{sliders[\space].value = value.value})});
+				model.longspace.get({|value|
+					AppClock.sched(0.0,{sliders[\longspace].value = value.value})});
+
+			})
+		});
+	}
+
+}
+
+DomifareLine {
+	var <text;
+
+	*new{|text|
+		^super.new.init(text);
+	}
+
+	init{|str|
+		"init Line".postln;
+		text = str;
+	}
+
+	append{|str, theChanger|
+		text.value_(text.value ++ str);
+		this.changed(\append, theChanger);
+	}
+
+	clear {
+		text = "";
+	}
+
+	eol {|theChanger|
+		text.changed(\eol, theChanger);
+		this.clear;
+	}
+
+}
+
 
 
 DomifareCommand {
@@ -300,8 +482,10 @@ DomifareCommand {
 
 	*new{|name, minargs, maxargs, types, func, launcher|
 		var command;
+		"new command".postln;
 		command = dict[name];
 		command.isNil.if({
+			"new command coined".postln;
 			minargs.notNil.if({ // don't create a new one for nil values
 				command = super.newCopyArgs(name, minargs, maxargs, types, func, launcher);
 				dict.put(name.asSymbol, command);
@@ -399,7 +583,8 @@ DomifareLoop {
 		^super.new.init(name, parent, pbind)
 	}
 
-	init{|na, pa pb|
+	init{|na, pa, pb|
+		"init loop".postln;
 		name = na;
 		parent = pa;
 		pbind = pb;
@@ -460,7 +645,7 @@ DomifareLoop {
 
 		pd.notNil.if({
 
-			clock.isKindOf(ExternalClock).if({
+			clock.isKindOf(ExternalClock).if({ // this also checks for nil
 				isplay.isNil.if({ isplay = false });
 				isplay.not.if({
 					"external".postln;
@@ -485,7 +670,8 @@ DomifareLoop {
 		});
 
 		pd = this.pdef();
-		pd.notNil.if({pd.stop();})
+		pd.notNil.if({pd.stop();});
+		isplay.notNil.if({ isplay = false});
 	}
 
 
@@ -503,7 +689,7 @@ DomifareLoop {
 
 		var pd, ret;
 
-		pd = pdef.notNil.if ({ pdef }, { Pdef(name) });
+		pd = this.pdef; //pdef.notNil.if ({ pdef }, { Pdef(name) });
 		pd.isNil.if ({ ret = false; },
 			{
 				ret = isplay;
@@ -517,6 +703,7 @@ DomifareLoop {
 
 	}
 
+	// wtf was this?
 	volume_ {|func|
 		downbeat= func.value(downbeat);
 		upbeat=func.value(upbeat);
