@@ -2,7 +2,7 @@ Domifare {
 
 	var syllables, key, responder, <vars, <numbers, word, lastrecv, active, data, >onsetFunc, <>onsets,
 	paused, syn, <>clock, gui, <thresh, <space, <longspace, <minspace, <threshc, <spacec, <longspacec,
-	<minspacec, <line, <linec, <recording, <server, <default_dur,<guiClass;
+	<minspacec, <line, <linec, <recording, <server, <default_dur,<guiClass, codeListeners;
 
 	*initClass{
 
@@ -69,7 +69,7 @@ Domifare {
 	}
 
 
-	
+
 	*new {|server, clock, dur|
 
 		^super.new.init(server, clock, dur);
@@ -143,7 +143,7 @@ Domifare {
 
 		//default_dur = Ref(init_dur);
 
-		minspace = Ref(0.1);
+		minspace = Ref(0.1); // unref this
 		//recording = Ref(false);
 		line = DomifareLine();
 
@@ -383,7 +383,7 @@ Domifare {
 			// This needs re-writing to deal with the command class
 
 			OSCdef(\domifare_in, {|msg, time, addr, recvPort|
-				var tag, node, id, value, letter, result;
+				var tag, node, id, value, letter, result, err;
 
 				#tag, node, id, value = msg;
 				//[tag, id, value].postln;
@@ -393,7 +393,7 @@ Domifare {
 					recording.not.if({
 						//"not recording".postln;
 						paused.not.if({
-							"pitch".postln;
+							//"pitch".postln;
 							//letter.postln;
 							letter = syllables.wrapAt(key.freqToDegree(value.asInteger));
 
@@ -401,7 +401,9 @@ Domifare {
 								// ignore things that follow too close on
 								word = (word ++ letter).postln;
 								//line.append(letter).changed(\append);
-								word.postln;
+								// alert listeners
+								this.code_updated(letter);
+								//word.postln;
 								lastrecv = time;
 							});
 						});
@@ -430,6 +432,8 @@ Domifare {
 								});
 								active.value.isNil.if({
 									// ERROR
+									err = NotFound("Command or variable not found: %.".format(word));
+									this.error_handler(err);
 								} , {
 									//line = [active];
 								});
@@ -445,7 +449,8 @@ Domifare {
 								result = active.var_(data);
 								// Error = bad data
 								result.isKindOf(Error).if({
-									result.errorString.postln;
+									//result.errorString.postln;
+									this.error_handler(result);
 									result = true;
 								});
 								// true = command is done
@@ -454,6 +459,8 @@ Domifare {
 								});
 							});
 							word = '';
+							// altert listeners
+							this.code_updated(" ");
 							//line.append(" ").changed(\append);
 						});
 					});
@@ -464,7 +471,8 @@ Domifare {
 							active.notNil.if({
 								result = active.eval;
 								result.isKindOf(Error).if({
-									result.errorString.postln;
+									//result.errorString.postln;
+									this.error_handler(result);
 								});
 								active = nil;
 							});
@@ -488,13 +496,70 @@ Domifare {
 		^gui;
 	}
 
+	registerCodeListener {|listener|
+		codeListeners.isNil.if({
+			codeListeners = [listener];
+		}, {
+			codeListeners.indexOf(listener).isNil.if({
+				codeListeners = codeListeners ++ listener;
+			})
+		})
+	}
+
+	removeCodeListener {|listener|
+		var index;
+
+		index = codeListeners.indexOf(listener);
+		index.notNil.if({
+			codeListeners.removeAt(index);
+		})
+	}
+
+	code_updated {|text|
+		text.post;
+		codeListeners.do({|listener|
+			listener.code_update(text);
+		})
+	}
+
+	code_executed {|text|
+		text.postln;
+		codeListeners.do({|listener|
+			listener.code_execute(text);
+		})
+	}
+
+	error_handler{|err|
+		codeListeners.do({|listener|
+			listener.code_error(err);
+		});
+		//err.throw;
+		"".postln;
+		err.postln;
+	}
+
+
 
 }
 
+DomifareError : Error {}
+
+NotFound : DomifareError {}
+
+NoSuchVariable : DomifareError {}
+
+
 DomifareGui : ObjectGui {
 
-	var history, activeLine, sliders, rec_button, run_button, textView;
+	var history, activeLine, sliders, rec_button, run_button, textView, lineView, font;
 
+	*new {|model|
+		^super.new(model).init;
+	}
+
+	init {
+		model.registerCodeListener(this);
+	}
 
 	guiBody { arg view;
 
@@ -507,6 +572,7 @@ DomifareGui : ObjectGui {
 		sliders = IdentityDictionary.new();
 
 		view.class.postln;
+		//view.bounds = Rect(0,0, 1000, 1000);
 
 		run_button = Button(view, 100@20).states_([
 			["Run ⏯"], ["Pause ⏸"]
@@ -521,42 +587,72 @@ DomifareGui : ObjectGui {
 		});
 
 		rec_button = Button(view, 40@20).states_([
-			["", Color.black, Color.clear],
+			[" ", Color.black, Color.clear],
 			["R", Color.black, Color.red]]);
 
-		view.startRow;
+		//view.startRow;
 
 		view.startRow;
-		ServerMeterView.new(model.server, view, 0@0, 2, 2);
-		textView = TextView(view).autohidesScrollers_(false).font_(Font("Courier",14));
+		ServerMeterView.new(model.server, view, 0@0, 1, 0).view.resize_(4); // left
+		view.flow({|flow|
+			var width;
 
+			width = view.innerBounds.width - (ServerMeterView.getWidth(1,0) + ServerMeterView.getWidth(0,2)+100);
+			flow.startRow;
+			font = Font("Courier",18);
+			textView = TextView(flow, //bounds
+				Rect(0,0,width,(ServerMeterView.height *2)-10)
+			).autohidesScrollers_(false).font_(font).resize_(5); // stretch
+			textView.background = Color.black;
+			textView.setStringColor(Color.white); textView.stringColor_(Color.white);
+			flow.startRow;
+
+			lineView = EZText(flow, Rect(0,0,width, 30), "Input: ").font_(font);
+			lineView.textField.value="";
+			lineView.setColors(Color.grey,Color.white,background: Color.grey(0.7));
+			lineView = lineView.textField;
+			lineView.resize(8);
+
+			flow.resize_(5);
+		});
+		ServerMeterView.new(model.server, view, 0@0, 0, 2).view.resize_(6); // right
 
 		view.startRow;
 
 
 
 		index = \thresh;
-		sliders[index] = EZSlider(view, label:index, controlSpec:\db, action: {|ez|
+		sliders[index] = EZSlider(view, ((view.innerBounds.width/2)-50)@20, index, \db,  {|ez|
 			model.thresh.set(ez.value.dbamp);
 		});
+		sliders[index].sliderView.resize_(8);
 
 		index = \space;
-		sliders[index] = EZSlider(view, label:index, controlSpec:ControlSpec(0.1, 2, 0.1), action:{|ez|
-			model.space.set(ez.value);
+		sliders[index] = EZSlider(view, ((view.innerBounds.width/2)-50)@20, index, ControlSpec(0.1, 2, 0.1),
+			{|ez|
+				model.space.set(ez.value);
 		});
-
+		sliders[index].sliderView.resize_(8);
 
 		view.startRow;
 
 		index = \longspace;
-		sliders[index] = EZSlider(view, label:index, controlSpec:ControlSpec(1, 5, 1), action: {|ez|
-			model.longspace.set(ez.value.dbamp);
+		sliders[index] = EZSlider(view, ((view.innerBounds.width/2)-50)@20, index, ControlSpec(1, 5, 1),
+			{|ez|
+				model.longspace.set(ez.value.dbamp);
 		});
+		sliders[index].sliderView.resize_(8);
 
 		index = \minspace;
-		sliders[index] = EZSlider(view, label:index, controlSpec:ControlSpec(0.01, 0.2, 0.1), action:{|ez|
-			model.minspace.set(ez.value);
+		sliders[index] = EZSlider(view, ((view.innerBounds.width/2)-50)@20, index, ControlSpec(0.01, 0.2, 0.1),
+			{|ez|
+				model.minspace.set(ez.value);
 		});
+		sliders[index].sliderView.resize_(8);
+
+		//textView.bounds = Rect(0,0,
+		//	view.innerBounds - (ServerMeterView.getWidth(1,0) + ServerMeterView.getWidth(0,2)),
+		//	ServerMeterView.height);
 
 
 		//view.layout = VLayout(
@@ -567,6 +663,14 @@ DomifareGui : ObjectGui {
 		//)
 
 		//this.update;
+		//view.scroll(autohidesScrollers:false, autoScrolls:false,
+		//	hasHorizontalScroller: false, hasVerticalScroller: false);
+
+		//view.parent.scroll(autohidesScrollers:false, autoScrolls:false,
+		//	hasHorizontalScroller: false, hasVerticalScroller: false);
+		view.reflowDeep;
+		view.resize_(5);
+
 
 	}
 
@@ -606,6 +710,47 @@ DomifareGui : ObjectGui {
 					AppClock.sched(0.0,{sliders[\longspace].value = value.value})});
 
 			})
+		});
+	}
+
+	code_update{|text|
+
+		AppClock.sched(0.0,{lineView.string = lineView.string ++ text;});
+	}
+
+	code_error{|err|
+		var text, start, size;
+
+		text = /*"ERROR:" + */ err.errorString;
+		size = text.size;
+
+		AppClock.sched(0.0,{
+			start = textView.string.size;
+			textView.string = textView.string ++ text ++ "\n";
+			// fucking stupid shit to fix the scrolling issue
+			textView.select(textView.string.size+1, 0);
+			textView.stringColor_(Color.white);
+			textView.setFont(font);
+			//textView.syntaxColorize;
+			textView.setStringColor(Color.red, start, size);
+
+			lineView.value = "";
+		});
+
+		//err.throw();
+		//"".postln;
+		//err.postln;
+	}
+
+	code_execute{|text|
+
+		AppClock.sched(0.0,{
+			lineView.value = "";
+			textView.string = textView.string ++ text ++ "\n";
+			textView.select(textView.string.size+1, 0);
+			textView.stringColor_(Color.white);
+			textView.setFont(font);
+			//textView.syntaxColorize;
 		});
 	}
 
