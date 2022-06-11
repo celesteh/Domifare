@@ -1,42 +1,13 @@
 Domifare {
 
-	var <syllables, <key, responder, <vars, <numbers, token, lastrecv, active, data, /*>onsetFunc,*/ <>onsets,
-	paused, syn, <>clock, gui, <thresh, <space, <longspace, <minspace, <threshc, <spacec, <longspacec,
-	<minspacec, /*<line, <linec,*/ <recording, <server, <default_dur,<guiClass, codeListeners,
-	lastOnset, pitches,
-	>requireOnsets, parser, statement;
+	var <syllables, <key, responder, <vars, <numbers, token, lastrecv, active, data,
+	paused, syn, <>clock, gui, <thresh, <space, <longspace, <minspace,
+	<recording, <server, <default_dur,<guiClass,
+	codeListeners, parser, statement, <>dEBUG;
 
 	*initClass{
 
 		StartUp.add {
-			/*
-			SynthDef(\domifare_input, { arg gate=1, in=0, thresh=0.2, space=0.5, longspace=2;
-
-			var input, env, fft_pitch, onset, chain, hasfreq, paused, linebreak;
-
-			input = SoundIn.ar(in, 1);
-			env = EnvGen.kr(Env.asr, gate, doneAction:2);
-
-			chain = FFT(LocalBuf(2048), input);
-			onset = Onsets.kr(chain, odftype:\phase);//odftype:\wphase);
-			#fft_pitch, hasfreq = Pitch.kr(input, ampThreshold:thresh);
-			paused = DetectSilence.ar(input, thresh, space);
-			linebreak = DetectSilence.ar(input, thresh, longspace);
-
-			//send pitch
-			SendTrig.kr(hasfreq, 0, fft_pitch);
-
-			// send onsets
-			SendTrig.kr(onset, 1, 1);
-
-			// send silence
-			SendTrig.kr(A2K.kr(paused), 2, 1);
-
-			// long silence (End of line)
-			SendTrig.kr(A2K.kr(linebreak), 3, 1);
-
-			}).writeDefFile;
-			*/
 
 			SynthDef(\recorder, { arg gate = 1, in=0, bufnum=0;
 
@@ -84,9 +55,11 @@ Domifare {
 
 		var assemblemvc;
 
-		"init Domifare".postln;
+		dEBUG = false;
 
-		requireOnsets = false;
+		dEBUG.if({
+			"init Domifare".postln;
+		});
 
 		// set guiClass
 		guiClass = DomifareGui;
@@ -174,7 +147,10 @@ Domifare {
 		*/
 
 		//name, minargs, maxargs, types, func, launcher
-		"define larelasi".postln;
+		dEBUG.if({
+			"define larelasi".postln;
+		});
+
 
 		DomifareCommand.define(\larelasi, 1, 1, [\var], {|lang, varname|  // declare loop
 			var loop, action;
@@ -300,14 +276,20 @@ Domifare {
 
 
 	pause{
-		"pausing".postln;
+		dEBUG.if({
+		"\npausing".postln;
+		});
+
 		paused= true;
 		//collectOnsets = false;
 		parser.pause = paused;
 	}
 
 	resume{
-		"going".postln;
+		dEBUG.if({
+		"\ngoing".postln;
+		});
+
 		paused = false;
 		//collectOnsets = true;
 		//onsets = [];
@@ -395,125 +377,7 @@ Domifare {
 
 			this.changed(this, this);
 
-			/*
-			// PUT THIS IN A GUI
-			syn = Synth(\domifare_input,
-			[\gate, 1, \in, 0, \thresh, thresh.asMap, \space, space.asMap,
-			\longspace, longspace.asMap],server);
 
-			// out with the old (if it exists)
-			OSCdef(\domifare_in).free;
-
-
-
-			// This needs re-writing to deal with the command class
-
-			OSCdef(\domifare_in, {|msg, time, addr, recvPort|
-			var tag, node, id, value, letter, result, err;
-
-			paused.not.if({
-			#tag, node, id, value = msg;
-			//[tag, id, value].postln;
-			case
-			{ id ==0 } { /* pitch */
-			//"pitch".postln;
-			recording.not.if({
-			//"not recording".postln;
-			paused.not.if({
-			//"pitch".postln;
-			//letter.postln;
-			letter = syllables.wrapAt(key.freqToDegree(value.asInteger));
-
-			((time - lastrecv).abs > minspace.value).if({
-			// ignore things that follow too close on
-			word = (word ++ letter).postln;
-			//line.append(letter).changed(\append);
-			// alert listeners
-			this.code_updated(letter);
-			//word.postln;
-			lastrecv = time;
-			});
-			});
-			});
-			}
-			{ id ==1 } { /* onset */
-			/*
-			onsetFunc.notNil.if({
-			onsetFunc.value(time);
-			onsets = onsets.add(time);
-			}, {
-			onsets = [];
-			});
-			*/
-			onsets = onsets.add(time);
-			lastOnset = time;
-
-
-			}
-			{ id ==2 } { /* space */
-			recording.not.if({
-			paused.not.if({
-			active.value.isNil.if({
-			// we are on a new command
-			active = DomifareCommand(word);
-			active.value.isNil.if({
-			active = vars[word];
-			// do recorder function immediately
-			// pause this OSCdef
-			});
-			active.value.isNil.if({
-			// ERROR
-			err = NotFound("Command or variable not found: %.".format(word));
-			this.error_handler(err);
-			} , {
-			//line = [active];
-			});
-			} , {
-			// we're on an active command
-			// try to match the word to known data or pass the symbol if we can't
-			data = numbers[word];
-			data.isNil.if({
-			data = vars[word];
-			data.isNil.if({
-			data = word;
-			})});
-			result = active.var_(data);
-			// Error = bad data
-			result.isKindOf(Error).if({
-			//result.errorString.postln;
-			this.error_handler(result);
-			result = true;
-			});
-			// true = command is done
-			result.if({ // command is finished
-			active = nil
-			});
-			});
-			word = '';
-			// altert listeners
-			this.code_updated(" ");
-			//line.append(" ").changed(\append);
-			});
-			});
-			}
-			{ id ==3 } { /* EOL */
-			recording.not.if({
-			paused.not.if({
-			active.notNil.if({
-			result = active.eval;
-			result.isKindOf(Error).if({
-			//result.errorString.postln;
-			this.error_handler(result);
-			});
-			active = nil;
-			});
-			word = '';
-			//line.eol.changed(\eol);
-			});
-			});
-			}
-			}); // end paused.if
-			}, '/tr', server.addr); */
 		});
 	}
 
@@ -548,7 +412,10 @@ Domifare {
 	}
 
 	code_updated {|text|
+
+		dEBUG.if({
 		text.post;
+		});
 
 		statement = statement ++ text;
 
@@ -558,7 +425,10 @@ Domifare {
 	}
 
 	code_executed {|text|
-		text.postln;
+		dEBUG.if({
+			text.postln;
+		});
+
 		codeListeners.do({|listener|
 			listener.code_execute(statement ++ text);
 		});
@@ -654,6 +524,10 @@ Domifare {
 
 	}
 
+	requireOnsets_{|bool|
+		parser.requireOnsets = bool;
+	}
+
 }
 
 // Parsing is too cimplicated, so it gets it's own object
@@ -720,7 +594,10 @@ DomifareParser {
 	}
 
 	code_updated {|text|
+		lang.dEBUG.if({
 		text.post;
+		});
+
 		codeListeners.do({|listener|
 			listener.code_updated(text);
 		})
@@ -784,81 +661,19 @@ DomifareParser {
 						paused.not.if({
 
 							this.freq_(value, time);
-							////"pitch".postln;
-							////letter.postln;
-							//letter = syllables.wrapAt(key.freqToDegree(value.asInteger));
-
-							//((time - lastrecv).abs > minspace.value).if({
-							//	// ignore things that follow too close on
-							//	word = (word ++ letter);//.postln;
-							//	//line.append(letter).changed(\append);
-							//	// alert listeners
-							//	this.code_updated(letter);
-							//	//word.postln;
-							//	lastrecv = time;
-							//});
 						});
 					});
 				}
 				{ id ==1 } { /* onset */
 					this.received_onset = time;
-					/*
-					onsetFunc.notNil.if({
-					onsetFunc.value(time);
-					onsets = onsets.add(time);
-					}, {
-					onsets = [];
-					});
-					*/
-					//onsets = onsets.add(time);
-					//lastOnset = time;
-
 
 				}
 				{ id ==2 } { /* space */
 					lang.recording.not.if({
 						paused.not.if({
 							this.received_space = time;
-							//active.value.isNil.if({
-							//	// we are on a new command
-							//	active = DomifareCommand(word);
-							//	active.value.isNil.if({
-							//		active = vars[word];
-							//		// do recorder function immediately
-							//		// pause this OSCdef
-							//	});
-							//	active.value.isNil.if({
-							//		// ERROR
-							//		err = NotFound("Command or variable not found: %.".format(word));
-							//		this.error_handler(err);
-							//	} , {
-							//		//line = [active];
-							//	});
-							//} , {
-							//	// we're on an active command
-							//	// try to match the word to known data or pass the symbol if we can't
-							//	data = numbers[word];
-							//	data.isNil.if({
-							//		data = vars[word];
-							//		data.isNil.if({
-							//			data = word;
-							//	})});
-							//	result = active.var_(data);
-							//	// Error = bad data
-							//	result.isKindOf(Error).if({
-							//		//result.errorString.postln;
-							//		this.error_handler(result);
-							//		result = true;
-							//	});
-							//	// true = command is done
-							//	result.if({ // command is finished
-							//		active = nil
-							//	});
-							//});
-							//word = '';
-							// altert listeners
-							//this.code_updated(" ");
-							//line.append(" ").changed(\append);
+
+
 						});
 					});
 				}
@@ -866,16 +681,6 @@ DomifareParser {
 					lang.recording.not.if({
 						paused.not.if({
 							lang.eol;
-							//active.notNil.if({
-							//	result = active.eval;
-							//	result.isKindOf(Error).if({
-							//		//result.errorString.postln;
-							//		this.error_handler(result);
-							//	});
-							//	active = nil;
-							//});
-							//word = '';
-							//line.eol.changed(\eol);
 						});
 					});
 				}
@@ -957,7 +762,11 @@ DomifareParser {
 		},{
 			((time - lastrecv).abs > lang.minspace.value).if({
 				// ignore things that follow too close on
-				token = (token ++ letter).postln;
+				token = (token ++ letter);
+				lang.dEBUG.if({
+					token.postln;
+				});
+
 				//line.append(letter).changed(\append);
 				// alert listeners
 				this.code_updated(letter);
@@ -1061,15 +870,18 @@ DomifareGui : ObjectGui {
 		var index;
 
 		//super.guiBody(view);
-
+		model.dEBUG.if({
 		"in guiBody".postln;
+		});
 
 		sliders = IdentityDictionary.new();
 
+		model.dEBUG.if({
 		view.class.postln;
+		});
 		//view.bounds = Rect(0,0, 1000, 1000);
 
-		run_button = Button(view, 50@20).states_([
+		run_button = Button(view, 90@25).states_([
 			["Run ⏯"], ["Pause ⏸"]
 		]).action_({|but|
 			(but.value == 1).if({
@@ -1081,7 +893,7 @@ DomifareGui : ObjectGui {
 			});
 		});
 
-		onsetButton = Button(view, 100@20).states_([
+		onsetButton = Button(view, 130@25).states_([
 			["Require Onsets"], ["Onsets Required"]
 		]).action_({|but|
 			(but.value == 1).if({
@@ -1188,8 +1000,9 @@ DomifareGui : ObjectGui {
 
 
 		(theChanger != this).if({
-
+			model.dEBUG.if({
 			"updating".postln;
+			});
 			/*
 			theModel.isKindOf(DomifareLine).if({
 
@@ -1209,7 +1022,7 @@ DomifareGui : ObjectGui {
 			sliders[\minspace].value = model.minspace.value;
 
 			// get the busses
-			model.thresh.get({|value| "thresh %".format(value).postln;
+			model.thresh.get({|value| //"thresh %".format(value).postln;
 				AppClock.sched(0.0,{sliders[\thresh].value = value.value.ampdb})});
 			model.space.get({|value|
 				AppClock.sched(0.0,{sliders[\space].value = value.value})});
@@ -1263,35 +1076,7 @@ DomifareGui : ObjectGui {
 
 }
 
-/*
-DomifareLine {
-var <text;
 
-*new{|text|
-^super.new.init(text);
-}
-
-init{|str|
-"init Line".postln;
-text = str;
-}
-
-append{|str, theChanger|
-text.value_(text.value ++ str);
-this.changed(\append, theChanger);
-}
-
-clear {
-text = "";
-}
-
-eol {|theChanger|
-text.changed(\eol, theChanger);
-this.clear;
-}
-
-}
-*/
 
 
 
@@ -1586,147 +1371,3 @@ DomifareLoop {
 
 
 }
-/*
-
-This was based on AlgoRLib, which I wrote no documentation for, so let's put it aside for now
-DomifareLoop {
-
-var <name, parent, <pbind, pdef, <>downbeat= -9, <>upbeat= -12, <>offbeat = -13, <>rest= \rest, isplay,
-<>beatfigures, <>restfigures, <>playf, <>stopf, loops, index;
-
-*new {|name,parent, pbind|
-^super.new.init(name, parent, pbind)
-}
-
-init{|na, pa, pb|
-"init loop".postln;
-name = na;
-parent = pa;
-pbind = pb;
-loops = [];
-index = -1;
-}
-
-
-pdef {
-pdef.isNil.if({
-pdef = Pdef(name);
-});
-^pdef
-}
-
-
-next {
-
-index = (index + 1).min(loops.size -1);
-^loops[index];
-
-}
-
-prev {
-
-index = (index-1).max((loops.size > 0).if({0}, {-1}));
-^loops[index];
-
-}
-
-last{
-index = loops.size-1;
-^loops[index];
-}
-
-rand {
-
-index = loops.size.rand;
-^loops[index];
-
-}
-
-
-loop {
-^loops[index];
-}
-
-
-play {|clock, quant ...args|
-
-var pd;
-
-playf.notNil.if({
-playf.value(*args)
-});
-
-pd = this.pdef();
-
-pd.notNil.if({
-
-clock.isKindOf(ExternalClock).if({ // this also checks for nil
-isplay.isNil.if({ isplay = false });
-isplay.not.if({
-"external".postln;
-pd.playExt(clock, nil, quant);
-isplay = true;
-});
-} , {
-"tempo".postln;
-pd.isPlaying.not.if({
-pd.play(clock, nil, quant);
-});
-});
-})
-
-}
-
-stop {|...args|
-var pd;
-
-stopf.notNil.if({
-stopf.value(*args)
-});
-
-pd = this.pdef();
-pd.notNil.if({pd.stop();});
-isplay.notNil.if({ isplay = false});
-}
-
-
-pause {
-var pd;
-
-pd = this.pdef();
-pd.notNil.if({pd.pause();})
-
-}
-
-
-
-isPlaying {
-
-var pd, ret;
-
-pd = this.pdef; //pdef.notNil.if ({ pdef }, { Pdef(name) });
-pd.isNil.if ({ ret = false; },
-{
-ret = isplay;
-ret.isNil.if ({
-ret = pd.isPlaying;
-});
-});
-ret.isNil.if ({ ret = false; });
-
-^ret;
-
-}
-
-volume_ {|func|
-downbeat= func.value(downbeat);
-upbeat=func.value(upbeat);
-offbeat=func.value(offbeat);
-}
-
-vol_{|f| this.volume_(f) }
-
-
-}
-*/
-
