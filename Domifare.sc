@@ -1,38 +1,42 @@
 Domifare {
 
-	var syllables, key, responder, <vars, <numbers, word, lastrecv, active, data, >onsetFunc, <>onsets,
+	var <syllables, <key, responder, <vars, <numbers, token, lastrecv, active, data, /*>onsetFunc,*/ <>onsets,
 	paused, syn, <>clock, gui, <thresh, <space, <longspace, <minspace, <threshc, <spacec, <longspacec,
-	<minspacec, <line, <linec, <recording, <server, <default_dur,<guiClass, codeListeners;
+	<minspacec, /*<line, <linec,*/ <recording, <server, <default_dur,<guiClass, codeListeners,
+	lastOnset, pitches,
+	>requireOnsets, parser, statement;
 
 	*initClass{
 
 		StartUp.add {
+			/*
 			SynthDef(\domifare_input, { arg gate=1, in=0, thresh=0.2, space=0.5, longspace=2;
 
-				var input, env, fft_pitch, onset, chain, hasfreq, paused, linebreak;
+			var input, env, fft_pitch, onset, chain, hasfreq, paused, linebreak;
 
-				input = SoundIn.ar(in, 1);
-				env = EnvGen.kr(Env.asr, gate, doneAction:2);
+			input = SoundIn.ar(in, 1);
+			env = EnvGen.kr(Env.asr, gate, doneAction:2);
 
-				chain = FFT(LocalBuf(2048), input);
-				onset = Onsets.kr(chain, odftype:\phase);//odftype:\wphase);
-				#fft_pitch, hasfreq = Pitch.kr(input, ampThreshold:thresh);
-				paused = DetectSilence.ar(input, thresh, space);
-				linebreak = DetectSilence.ar(input, thresh, longspace);
+			chain = FFT(LocalBuf(2048), input);
+			onset = Onsets.kr(chain, odftype:\phase);//odftype:\wphase);
+			#fft_pitch, hasfreq = Pitch.kr(input, ampThreshold:thresh);
+			paused = DetectSilence.ar(input, thresh, space);
+			linebreak = DetectSilence.ar(input, thresh, longspace);
 
-				//send pitch
-				SendTrig.kr(hasfreq, 0, fft_pitch);
+			//send pitch
+			SendTrig.kr(hasfreq, 0, fft_pitch);
 
-				// send onsets
-				SendTrig.kr(onset, 1, 1);
+			// send onsets
+			SendTrig.kr(onset, 1, 1);
 
-				// send silence
-				SendTrig.kr(A2K.kr(paused), 2, 1);
+			// send silence
+			SendTrig.kr(A2K.kr(paused), 2, 1);
 
-				// long silence (End of line)
-				SendTrig.kr(A2K.kr(linebreak), 3, 1);
+			// long silence (End of line)
+			SendTrig.kr(A2K.kr(linebreak), 3, 1);
 
 			}).writeDefFile;
+			*/
 
 			SynthDef(\recorder, { arg gate = 1, in=0, bufnum=0;
 
@@ -82,8 +86,11 @@ Domifare {
 
 		"init Domifare".postln;
 
+		requireOnsets = false;
+
 		// set guiClass
 		guiClass = DomifareGui;
+		statement = "";
 
 		// inisitalise clocks
 
@@ -145,7 +152,7 @@ Domifare {
 
 		minspace = Ref(0.1); // unref this
 		//recording = Ref(false);
-		line = DomifareLine();
+		//line = DomifareLine();
 
 		/*
 		// replace with command class below
@@ -221,7 +228,7 @@ Domifare {
 
 
 
-		word = '';
+		token = '';
 		lastrecv = 0;
 
 		srv.isNil.if({
@@ -295,11 +302,16 @@ Domifare {
 	pause{
 		"pausing".postln;
 		paused= true;
+		//collectOnsets = false;
+		parser.pause = paused;
 	}
 
 	resume{
 		"going".postln;
 		paused = false;
+		//collectOnsets = true;
+		//onsets = [];
+		parser.pause = paused;
 	}
 
 
@@ -332,12 +344,16 @@ Domifare {
 				\buffer, buffer,
 				\is_recording, Prout({
 					recording = true;
-					onsetFunc = 1; // start geting onsets
+					//onsetFunc = 1; // start geting onsets
+					//onsets = [];
+					parser.pause = true;
 					this.changed;
 					true.yield; // ok, let's go!
 					recording = false;
-					loop.offsets = onsets; // grab these
-					onsetFunc = nil; // stop adding to it
+					loop.offsets = parser.onsets.copy; // grab these
+					//onsets = [];
+					//onsetFunc = nil; // stop adding to it
+					parser.pause = false;
 					this.changed; // tell the GUI
 					recordAction.value(loop);
 					// don't yield. The nil stops the recording from repeating
@@ -353,6 +369,13 @@ Domifare {
 		this.changed(theChanger);
 	}
 
+	update {|theModel, theChanger| // this may cause an infinite loop
+
+		((theChanger != this) && (theModel != this)).if({
+			this.changed(theChanger, theModel); // use the moreArgs
+			// to say what changed
+		});
+	}
 
 
 	server_{|srv|
@@ -368,12 +391,378 @@ Domifare {
 
 			server.sync;
 
+			parser = DomifareParser(this, server);
+
 			this.changed(this, this);
+
+			/*
+			// PUT THIS IN A GUI
+			syn = Synth(\domifare_input,
+			[\gate, 1, \in, 0, \thresh, thresh.asMap, \space, space.asMap,
+			\longspace, longspace.asMap],server);
+
+			// out with the old (if it exists)
+			OSCdef(\domifare_in).free;
+
+
+
+			// This needs re-writing to deal with the command class
+
+			OSCdef(\domifare_in, {|msg, time, addr, recvPort|
+			var tag, node, id, value, letter, result, err;
+
+			paused.not.if({
+			#tag, node, id, value = msg;
+			//[tag, id, value].postln;
+			case
+			{ id ==0 } { /* pitch */
+			//"pitch".postln;
+			recording.not.if({
+			//"not recording".postln;
+			paused.not.if({
+			//"pitch".postln;
+			//letter.postln;
+			letter = syllables.wrapAt(key.freqToDegree(value.asInteger));
+
+			((time - lastrecv).abs > minspace.value).if({
+			// ignore things that follow too close on
+			word = (word ++ letter).postln;
+			//line.append(letter).changed(\append);
+			// alert listeners
+			this.code_updated(letter);
+			//word.postln;
+			lastrecv = time;
+			});
+			});
+			});
+			}
+			{ id ==1 } { /* onset */
+			/*
+			onsetFunc.notNil.if({
+			onsetFunc.value(time);
+			onsets = onsets.add(time);
+			}, {
+			onsets = [];
+			});
+			*/
+			onsets = onsets.add(time);
+			lastOnset = time;
+
+
+			}
+			{ id ==2 } { /* space */
+			recording.not.if({
+			paused.not.if({
+			active.value.isNil.if({
+			// we are on a new command
+			active = DomifareCommand(word);
+			active.value.isNil.if({
+			active = vars[word];
+			// do recorder function immediately
+			// pause this OSCdef
+			});
+			active.value.isNil.if({
+			// ERROR
+			err = NotFound("Command or variable not found: %.".format(word));
+			this.error_handler(err);
+			} , {
+			//line = [active];
+			});
+			} , {
+			// we're on an active command
+			// try to match the word to known data or pass the symbol if we can't
+			data = numbers[word];
+			data.isNil.if({
+			data = vars[word];
+			data.isNil.if({
+			data = word;
+			})});
+			result = active.var_(data);
+			// Error = bad data
+			result.isKindOf(Error).if({
+			//result.errorString.postln;
+			this.error_handler(result);
+			result = true;
+			});
+			// true = command is done
+			result.if({ // command is finished
+			active = nil
+			});
+			});
+			word = '';
+			// altert listeners
+			this.code_updated(" ");
+			//line.append(" ").changed(\append);
+			});
+			});
+			}
+			{ id ==3 } { /* EOL */
+			recording.not.if({
+			paused.not.if({
+			active.notNil.if({
+			result = active.eval;
+			result.isKindOf(Error).if({
+			//result.errorString.postln;
+			this.error_handler(result);
+			});
+			active = nil;
+			});
+			word = '';
+			//line.eol.changed(\eol);
+			});
+			});
+			}
+			}); // end paused.if
+			}, '/tr', server.addr); */
+		});
+	}
+
+	gui {|parent, bounds|
+		var gui;
+		//guiClass = this.guiClass;
+		gui = guiClass.new( this );
+		gui.gui( parent, bounds );
+		//ui = super.gui(this);
+		this.changed(this, this);
+		//line.addDependant(gui);
+		^gui;
+	}
+
+	registerCodeListener {|listener|
+		codeListeners.isNil.if({
+			codeListeners = [listener];
+		}, {
+			codeListeners.indexOf(listener).isNil.if({
+				codeListeners = codeListeners.add(listener);
+			})
+		})
+	}
+
+	removeCodeListener {|listener|
+		var index;
+
+		index = codeListeners.indexOf(listener);
+		index.notNil.if({
+			codeListeners.removeAt(index);
+		})
+	}
+
+	code_updated {|text|
+		text.post;
+
+		statement = statement ++ text;
+
+		codeListeners.do({|listener|
+			listener.code_updated(text);
+		})
+	}
+
+	code_executed {|text|
+		text.postln;
+		codeListeners.do({|listener|
+			listener.code_execute(statement ++ text);
+		});
+		statement = "";
+	}
+
+	error_handler{|err|
+		codeListeners.do({|listener|
+			listener.code_error(err);
+		});
+		//err.throw;
+		//"".postln;
+		//err.postln;
+		"\nERROR: %".format(err.errorString).postln;
+		statement = "";
+	}
+
+	token_{|word|
+
+		var err, data, result;
+
+		token = word;
+		active.value.isNil.if({ // start of a new command
+
+			active = DomifareCommand(word);
+			active.value.isNil.if({
+				// Bad command
+				err = CommandNotFound("Command not found: %.".format(token));
+				this.error_handler(err);
+			});
+
+			// We've either started a new line or thrown an error
+		},{
+			// Already in he middle of a command
+
+			// Could this token be a number?
+			data = numbers[token];
+
+			data.isNil.if({
+				// Could this token be a var?
+				data = vars[token];
+
+				data.isNil.if({
+					// the token string is the data
+					data = token;
+				});
+			});
+
+			result = active.var_(data);
+			result.isKindOf(Error).if({
+				this.error_handler(result);
+				// this command is done
+				active = nil;
+			});
+
+			// Is the command done?
+			(result == true).if({
+				// the command is done
+				active = nil;
+			},{
+				(result.isKindOf(Function)).if({
+					result.value;
+					this.code_executed();
+					// the command is done
+					active = nil;
+				})
+			});
+
+		});
+
+
+	}
+
+	eol{
+		var result;
+
+		active.notNil.if({
+			// execute the command
+			result = active.eval;
+			result.notNil.if({
+				result.isKindOf(Error).if({
+					this.error_handler(result);
+				}, {
+					result.value;
+				});
+			});
+
+			this.code_executed();
+
+			// this command is done
+			active = nil;
+		});
+
+	}
+
+}
+
+// Parsing is too cimplicated, so it gets it's own object
+DomifareParser {
+	var lang, codeListeners, paused, <>onsets, /*lastOnset, */ pitches,
+	/*syllables, key,*/ responder, <token, lastrecvtime, >requireOnsets,
+	space, pitchSemaphore, <server, <syn, lastrecv;
+
+	*initClass{
+
+		StartUp.add {
+			SynthDef(\domifare_input, { arg gate=1, in=0, thresh=0.2, space=0.5, longspace=2;
+
+				var input, env, fft_pitch, onset, chain, hasfreq, paused, linebreak;
+
+				input = SoundIn.ar(in, 1);
+				env = EnvGen.kr(Env.asr, gate, doneAction:2);
+
+				chain = FFT(LocalBuf(2048), input);
+				onset = Onsets.kr(chain, odftype:\phase);//odftype:\wphase);
+				#fft_pitch, hasfreq = Pitch.kr(input, ampThreshold:thresh);
+				paused = DetectSilence.ar(input, thresh, space);
+				linebreak = DetectSilence.ar(input, thresh, longspace);
+
+				//send pitch
+				SendTrig.kr(hasfreq, 0, fft_pitch);
+
+				// send onsets
+				SendTrig.kr(onset, 1, 1);
+
+				// send silence
+				SendTrig.kr(A2K.kr(paused), 2, 1);
+
+				// long silence (End of line)
+				SendTrig.kr(A2K.kr(linebreak), 3, 1);
+
+			}).writeDefFile;
+		}
+	}
+
+	*new {|lang, server|
+		^super.new.init(lang, server);
+	}
+
+	init {|theLang, server|
+
+		lang = theLang;
+		lang.addDependant(this);
+
+		space = 0;
+		this.registerCodeListener(lang);
+
+		pitches = [];
+		pitchSemaphore = Semaphore(1);
+
+		lastrecv = 0;
+		paused  = true;
+		token = "";
+		onsets = [];
+		requireOnsets = false;
+
+		this.server_(server);
+
+	}
+
+	code_updated {|text|
+		text.post;
+		codeListeners.do({|listener|
+			listener.code_updated(text);
+		})
+	}
+
+	registerCodeListener {|listener|
+		codeListeners.isNil.if({
+			codeListeners = [listener];
+		}, {
+			codeListeners.indexOf(listener).isNil.if({
+				codeListeners = codeListeners.add(listener);
+			})
+		})
+	}
+
+	removeCodeListener {|listener|
+		var index;
+
+		index = codeListeners.indexOf(listener);
+		index.notNil.if({
+			codeListeners.removeAt(index);
+		})
+	}
+
+	pause_{|shouldPause|
+		paused = shouldPause;
+		// whatever's happening, clear the onsets
+		onsets = [];
+	}
+
+	server_{|srv|
+
+		server = srv;
+
+		server.waitForBoot({
+
+			lang.space.get({|value| space = value;});
 
 			// PUT THIS IN A GUI
 			syn = Synth(\domifare_input,
-				[\gate, 1, \in, 0, \thresh, thresh.asMap, \space, space.asMap,
-					\longspace, longspace.asMap],server);
+				[\gate, 1, \in, 0, \thresh, lang.thresh.asMap, \space, lang.space.asMap,
+					\longspace, lang.longspace.asMap],server);
 
 			// out with the old (if it exists)
 			OSCdef(\domifare_in).free;
@@ -390,168 +779,274 @@ Domifare {
 				case
 				{ id ==0 } { /* pitch */
 					//"pitch".postln;
-					recording.not.if({
+					lang.recording.not.if({
 						//"not recording".postln;
 						paused.not.if({
-							//"pitch".postln;
-							//letter.postln;
-							letter = syllables.wrapAt(key.freqToDegree(value.asInteger));
 
-							((time - lastrecv).abs > minspace.value).if({
-								// ignore things that follow too close on
-								word = (word ++ letter).postln;
-								//line.append(letter).changed(\append);
-								// alert listeners
-								this.code_updated(letter);
-								//word.postln;
-								lastrecv = time;
-							});
+							this.freq_(value, time);
+							////"pitch".postln;
+							////letter.postln;
+							//letter = syllables.wrapAt(key.freqToDegree(value.asInteger));
+
+							//((time - lastrecv).abs > minspace.value).if({
+							//	// ignore things that follow too close on
+							//	word = (word ++ letter);//.postln;
+							//	//line.append(letter).changed(\append);
+							//	// alert listeners
+							//	this.code_updated(letter);
+							//	//word.postln;
+							//	lastrecv = time;
+							//});
 						});
 					});
 				}
 				{ id ==1 } { /* onset */
-
+					this.received_onset = time;
+					/*
 					onsetFunc.notNil.if({
-						onsetFunc.value(time);
-						onsets = onsets.add(time);
+					onsetFunc.value(time);
+					onsets = onsets.add(time);
 					}, {
-						onsets = [];
+					onsets = [];
 					});
+					*/
+					//onsets = onsets.add(time);
+					//lastOnset = time;
+
 
 				}
 				{ id ==2 } { /* space */
-					recording.not.if({
+					lang.recording.not.if({
 						paused.not.if({
-							active.value.isNil.if({
-								// we are on a new command
-								active = DomifareCommand(word);
-								active.value.isNil.if({
-									active = vars[word];
-									// do recorder function immediately
-									// pause this OSCdef
-								});
-								active.value.isNil.if({
-									// ERROR
-									err = NotFound("Command or variable not found: %.".format(word));
-									this.error_handler(err);
-								} , {
-									//line = [active];
-								});
-							} , {
-								// we're on an active command
-								// try to match the word to known data or pass the symbol if we can't
-								data = numbers[word];
-								data.isNil.if({
-									data = vars[word];
-									data.isNil.if({
-										data = word;
-								})});
-								result = active.var_(data);
-								// Error = bad data
-								result.isKindOf(Error).if({
-									//result.errorString.postln;
-									this.error_handler(result);
-									result = true;
-								});
-								// true = command is done
-								result.if({ // command is finished
-									active = nil
-								});
-							});
-							word = '';
+							this.received_space = time;
+							//active.value.isNil.if({
+							//	// we are on a new command
+							//	active = DomifareCommand(word);
+							//	active.value.isNil.if({
+							//		active = vars[word];
+							//		// do recorder function immediately
+							//		// pause this OSCdef
+							//	});
+							//	active.value.isNil.if({
+							//		// ERROR
+							//		err = NotFound("Command or variable not found: %.".format(word));
+							//		this.error_handler(err);
+							//	} , {
+							//		//line = [active];
+							//	});
+							//} , {
+							//	// we're on an active command
+							//	// try to match the word to known data or pass the symbol if we can't
+							//	data = numbers[word];
+							//	data.isNil.if({
+							//		data = vars[word];
+							//		data.isNil.if({
+							//			data = word;
+							//	})});
+							//	result = active.var_(data);
+							//	// Error = bad data
+							//	result.isKindOf(Error).if({
+							//		//result.errorString.postln;
+							//		this.error_handler(result);
+							//		result = true;
+							//	});
+							//	// true = command is done
+							//	result.if({ // command is finished
+							//		active = nil
+							//	});
+							//});
+							//word = '';
 							// altert listeners
-							this.code_updated(" ");
+							//this.code_updated(" ");
 							//line.append(" ").changed(\append);
 						});
 					});
 				}
 				{ id ==3 } { /* EOL */
-					recording.not.if({
+					lang.recording.not.if({
 						paused.not.if({
-							active.notNil.if({
-								result = active.eval;
-								result.isKindOf(Error).if({
-									//result.errorString.postln;
-									this.error_handler(result);
-								});
-								active = nil;
-							});
-							word = '';
+							lang.eol;
+							//active.notNil.if({
+							//	result = active.eval;
+							//	result.isKindOf(Error).if({
+							//		//result.errorString.postln;
+							//		this.error_handler(result);
+							//	});
+							//	active = nil;
+							//});
+							//word = '';
 							//line.eol.changed(\eol);
 						});
 					});
 				}
 			}, '/tr', server.addr);
 		});
+
+
+
 	}
 
-	gui {|parent, bounds|
-		var gui;
-		//guiClass = this.guiClass;
-		gui = guiClass.new( this );
-		gui.gui( parent, bounds );
-		//ui = super.gui(this);
-		this.changed(this, this);
-		line.addDependant(gui);
-		^gui;
-	}
 
-	registerCodeListener {|listener|
-		codeListeners.isNil.if({
-			codeListeners = [listener];
-		}, {
-			codeListeners.indexOf(listener).isNil.if({
-				codeListeners = codeListeners ++ listener;
-			})
-		})
-	}
+	best_letter{|time, space=0|
 
-	removeCodeListener {|listener|
-		var index;
+		var end, count, durs, last, num, time_tuple, dur,
+		occurances, winner, pcopy;
 
-		index = codeListeners.indexOf(listener);
-		index.notNil.if({
-			codeListeners.removeAt(index);
-		})
-	}
+		// candidates are stored [num, time]
+		end = time-space;
+		last = end;
+		count = Array.fill(lang.syllables.size, {0});
+		durs = Array.fill(lang.syllables.size, {0});
 
-	code_updated {|text|
-		text.post;
-		codeListeners.do({|listener|
-			listener.code_update(text);
-		})
-	}
+		// get a lock on the pitches
+		pitchSemaphore.wait;
+		pcopy = pitches.reverse;
+		pitches=[];
+		pitchSemaphore.signal;
 
-	code_executed {|text|
-		text.postln;
-		codeListeners.do({|listener|
-			listener.code_execute(text);
-		})
-	}
+		winner = nil;
 
-	error_handler{|err|
-		codeListeners.do({|listener|
-			listener.code_error(err);
+		(pcopy.size > 0).if({
+
+			// first, sum all the time for each note
+			pcopy.do({|tuple, index|
+				num = tuple.first;
+				time_tuple = tuple.last;
+				dur = (last-time_tuple).abs;
+				durs[num] = durs[num] + dur;
+				count[num] = count[num] + 1;
+				last = time_tuple;
+			});
+
+			// then, find the one with the most occurances
+			occurances = 0;
+			count.do({|item, index|
+				(item > count[occurances]).if({
+					occurances = index;
+				})
+			});
+
+			// now find the one with the greatest duration
+			winner = 0;
+			durs.do({|item, index|
+				(item> count[winner]).if({
+					winner = index;
+				})
+			});
+
+			// How often do these mismatch???
+			(winner != occurances).if({
+				"WARNING: Ambigious note - % or %"
+				.format(lang.syllables[durs], lang.syllables[winner])
+				.postln;
+			});
+
+			this.code_updated(winner);
+
 		});
-		//err.throw;
-		"".postln;
-		err.postln;
+
+		^winner;
 	}
 
+	received_letter_{|letter, number, time|
+		requireOnsets.if({
+			// candidates are stored [num, time]
+			pitchSemaphore.wait;
+			pitches = pitches.add([number, time]);
+			pitchSemaphore.signal;
+		},{
+			((time - lastrecv).abs > lang.minspace.value).if({
+				// ignore things that follow too close on
+				token = (token ++ letter).postln;
+				//line.append(letter).changed(\append);
+				// alert listeners
+				this.code_updated(letter);
+				//word.postln;
+				lastrecv = time;
+			});
+		})
+
+	}
+
+
+
+	received_space_{|time|
+		var last_letter;
+
+		// let's just update space here
+		//lang.space.get({|value| space = value;});
+
+		this.code_updated(" ");
+
+		// figure out what letter we just had
+
+		requireOnsets.if({
+			last_letter = this.best_letter(time, space);
+			last_letter.notNil.if({
+				last_letter = lang.syllables.wrapAt(last_letter);
+				token = token ++ last_letter;
+			});
+		});
+
+		// make sure the token isn't empty
+		token = token.stripWhiteSpace;
+		(token.size > 0).if ({
+			lang.token_(token);
+		});
+		token = "";
+
+
+	}
+
+	received_onset_{|time|
+
+		var last_letter;
+
+		// figure out what letter we just had
+		paused.not.if ({
+			requireOnsets.if({
+				last_letter = this.best_letter(time, space);
+				last_letter.notNil.if({
+					last_letter = lang.syllables.wrapAt(last_letter);
+					token = token ++ last_letter;
+				});
+			});
+		});
+
+		onsets = onsets.add(time);
+
+	}
+
+	freq_{|freq, time|
+		var letter, num;
+
+		num = lang.key.freqToDegree(freq.asInteger);
+		num = num % lang.syllables.size;
+		letter = lang.syllables.wrapAt(num);
+
+		this.received_letter_(letter, num, time);
+	}
+
+	update {
+		// let's just update space here
+		lang.space.get({|value| space = value;});
+	}
 
 
 }
 
 DomifareError : Error {}
 
-NotFound : DomifareError {}
+WrongType : DomifareError {}
+
+CommandNotFound : DomifareError {}
 
 NoSuchVariable : DomifareError {}
 
 
 DomifareGui : ObjectGui {
 
-	var history, activeLine, sliders, rec_button, run_button, textView, lineView, font;
+	var history, activeLine, sliders, rec_button, run_button, textView, lineView, font, onsetButton;
 
 	*new {|model|
 		^super.new(model).init;
@@ -574,7 +1069,7 @@ DomifareGui : ObjectGui {
 		view.class.postln;
 		//view.bounds = Rect(0,0, 1000, 1000);
 
-		run_button = Button(view, 100@20).states_([
+		run_button = Button(view, 50@20).states_([
 			["Run ⏯"], ["Pause ⏸"]
 		]).action_({|but|
 			(but.value == 1).if({
@@ -583,6 +1078,17 @@ DomifareGui : ObjectGui {
 			}, {
 				// pause
 				model.pause;
+			});
+		});
+
+		onsetButton = Button(view, 100@20).states_([
+			["Require Onsets"], ["Onsets Required"]
+		]).action_({|but|
+			(but.value == 1).if({
+				// we want to require onsets
+				model.requireOnsets = true;
+			}, {
+				model.requireOnsets = false;
 			});
 		});
 
@@ -631,6 +1137,7 @@ DomifareGui : ObjectGui {
 		sliders[index] = EZSlider(view, ((view.innerBounds.width/2)-50)@20, index, ControlSpec(0.1, 2, 0.1),
 			{|ez|
 				model.space.set(ez.value);
+				model.changed(this, model.space);
 		});
 		sliders[index].sliderView.resize_(8);
 
@@ -683,37 +1190,37 @@ DomifareGui : ObjectGui {
 		(theChanger != this).if({
 
 			"updating".postln;
-
+			/*
 			theModel.isKindOf(DomifareLine).if({
 
-				theModel.postln;
-				theChanger.postln;
+			theModel.postln;
+			theChanger.postln;
 
 			}, { // else normal model
+			*/
+			// are we recording?
+			model.recording.value.if({
+				rec_button.value = 1;
+			},{
+				rec_button.value=0;
+			});
 
-				// are we recording?
-				model.recording.value.if({
-					rec_button.value = 1;
-				},{
-					rec_button.value=0;
-				});
+			// just grab the value
+			sliders[\minspace].value = model.minspace.value;
 
-				// just grab the value
-				sliders[\minspace].value = model.minspace.value;
+			// get the busses
+			model.thresh.get({|value| "thresh %".format(value).postln;
+				AppClock.sched(0.0,{sliders[\thresh].value = value.value.ampdb})});
+			model.space.get({|value|
+				AppClock.sched(0.0,{sliders[\space].value = value.value})});
+			model.longspace.get({|value|
+				AppClock.sched(0.0,{sliders[\longspace].value = value.value})});
 
-				// get the busses
-				model.thresh.get({|value| "thresh %".format(value).postln;
-					AppClock.sched(0.0,{sliders[\thresh].value = value.value.ampdb})});
-				model.space.get({|value|
-					AppClock.sched(0.0,{sliders[\space].value = value.value})});
-				model.longspace.get({|value|
-					AppClock.sched(0.0,{sliders[\longspace].value = value.value})});
-
-			})
+			//})
 		});
 	}
 
-	code_update{|text|
+	code_updated{|text|
 
 		AppClock.sched(0.0,{lineView.string = lineView.string ++ text;});
 	}
@@ -756,33 +1263,35 @@ DomifareGui : ObjectGui {
 
 }
 
+/*
 DomifareLine {
-	var <text;
+var <text;
 
-	*new{|text|
-		^super.new.init(text);
-	}
+*new{|text|
+^super.new.init(text);
+}
 
-	init{|str|
-		"init Line".postln;
-		text = str;
-	}
+init{|str|
+"init Line".postln;
+text = str;
+}
 
-	append{|str, theChanger|
-		text.value_(text.value ++ str);
-		this.changed(\append, theChanger);
-	}
+append{|str, theChanger|
+text.value_(text.value ++ str);
+this.changed(\append, theChanger);
+}
 
-	clear {
-		text = "";
-	}
+clear {
+text = "";
+}
 
-	eol {|theChanger|
-		text.changed(\eol, theChanger);
-		this.clear;
-	}
+eol {|theChanger|
+text.changed(\eol, theChanger);
+this.clear;
+}
 
 }
+*/
 
 
 
@@ -828,20 +1337,20 @@ DomifareCommand {
 		subcommand.notNil.if({
 			ret = subcommand.var_(newvar);
 		} , {
-			newindex = vars.size;
+			newindex = vars.size; // what??
 			type = types[newindex];
 			// check the types
 			case
 			{ (type == \var) || (type == DomifareLoop) } {
 				newvar.isKindOf(DomifareLoop).not.if({
-					ret = Error("Variable is wrong type.");
+					ret = WrongType("Variable is wrong type.");
 				}, {
 					vars = vars ++ newvar;
 				});
 			}
 			{ ( type == \number) || (type == SimpleNumber) } {
 				newvar.isKindOf(SimpleNumber).not.if({
-					ret = Error("Variable is wrong type.");
+					ret = WrongType("Variable is wrong type.");
 				}, {
 					vars = vars ++ newvar;
 				});
@@ -852,13 +1361,13 @@ DomifareCommand {
 				});
 				newvar.notNil.if({
 					newvar.isKindOf(DomifareCommand).not.if({
-						ret = Error("command not found.");
+						ret = NotFound("command not found.");
 					}, {
 						subcommand = newvar;
 						ret = false;
 					});
 				}, {
-					ret = Error("command not found.");
+					ret = NotFound("command not found.");
 				});
 			};
 			// ret is nil if we haven't figured out what to do yet
