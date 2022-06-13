@@ -77,6 +77,9 @@ Domifare {
 
 		no_clock.if({
 			this.clock = TempoClock(110/60, 16, queueSize:2048);
+			this.clock.schedAbs(0, {
+				this.clock.beatsPerBar_(16) // See below
+			});
 			// ok, but what if the duration disagrees?
 			default_dur.notNil.if({
 				this.clock.tempo = (default_dur / 16).reciprocal; // See above
@@ -86,7 +89,9 @@ Domifare {
 		// if we don't have a default dur, base it off the clock
 
 		default_dur.isNil.if({
-			default_dur = this.clock.beatsPerBar * this.clock.beatDur;
+			this.clock.schedAbs(0, {
+				default_dur = this.clock.beatsPerBar * this.clock.beatDur;
+			});
 		}, {
 
 			// if the clock and the dur disagree?
@@ -98,11 +103,11 @@ Domifare {
 			})
 		});
 
-		no_clock.if({
-			this.clock.schedAbs(0, {
-				this.clock.beatsPerBar_(16) // See below
-			});
-		});
+		//no_clock.if({
+		//	this.clock.schedAbs(0, {
+		//		this.clock.beatsPerBar_(16) // See below
+		//	});
+		//});
 
 		dEBUG.if({
 			"default_dur is %".format(default_dur).postln;
@@ -530,7 +535,7 @@ Domifare {
 			},{
 				(result.isKindOf(Function)).if({
 					result.value;
-					this.code_executed("" + active.name + word);
+					this.code_executed(active.name.asString + word);
 					// the command is done
 					active = nil;
 				})
@@ -724,6 +729,10 @@ DomifareParser {
 
 	server_{|srv|
 
+		var semaphore;
+
+		semaphore = Semaphore(1);
+
 		server = srv;
 
 		server.waitForBoot({
@@ -744,6 +753,8 @@ DomifareParser {
 
 			OSCdef(\domifare_in, {|msg, time, addr, recvPort|
 				var tag, node, id, value, letter, result, err;
+
+				semaphore.wait;
 
 				#tag, node, id, value = msg;
 				//[tag, id, value].postln;
@@ -767,19 +778,23 @@ DomifareParser {
 
 				}
 				{ id ==2 } { /* space */
-					lang.recording.not.if({
-						paused.not.if({
-							this.received_space = time;
+
+					paused.not.if({
+
+						lang.dEBUG.if({ "space".postln });
+
+						this.received_space = time;
 
 
-						});
 					});
+
 				}
 				{ id ==3 } { /* EOL */
-					lang.recording.not.if({
-						paused.not.if({
-							lang.eol;
-						});
+
+					paused.not.if({
+						lang.dEBUG.if({ "eol".postln; });
+						lang.eol;
+
 					});
 				}
 				{ id == 4 } { /* time donaim */
@@ -795,7 +810,10 @@ DomifareParser {
 							},{"not time".postln;});
 						});
 					});
-				}
+				};
+
+				semaphore.signal;
+
 			}, '/tr', server.addr);
 		});
 
@@ -1153,7 +1171,7 @@ DomifareGui : ObjectGui {
 			}, { // else normal model
 			*/
 			AppClock.sched(0, {
-			// are we recording?
+				// are we recording?
 				model.recording.value.if({
 					rec_button.value = 1;
 				},{
@@ -1425,7 +1443,7 @@ DomifareLoop {
 				[\startFrame, \dur], Pfunc({|evt|
 					evt[\start_durs]
 				}),
-				\status, Pfunc({|evt| "playing loop %".format(evt[\dur]).postln})
+				\status, Pfunc({|evt| "playing loop % %".format(name, evt[\dur]).postln})
 			)
 		);
 		//})

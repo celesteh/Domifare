@@ -10,5 +10,3 @@ s.waitForBoot({
 	"/usr/bin/jack_connect SuperCollider:in_2 H2\\\ Analogue\\\ Stereo:capture_FR".unixCmd;
 });
 )
-
-// input type button was reversed
