@@ -2,8 +2,8 @@ Domifare {
 
 	var <syllables, <key, responder, <vars, <numbers, token, lastrecv, active, data,
 	paused, syn, <>clock, gui, <thresh, <space, <longspace, <minspace,
-	<recording, <server, <default_dur,<guiClass,
-	codeListeners, parser, statement, <>dEBUG;
+	<recording, <server, <default_dur,<guiClass, default_var_names, var_maker,
+	codeListeners, parser, statement, <>dEBUG, error_count, <>input_method, >liberalise;
 
 	*initClass{
 
@@ -53,9 +53,10 @@ Domifare {
 
 	init {|srv, clock, init_dur|
 
-		var assemblemvc;
+		var no_clock;
 
-		dEBUG = false;
+		dEBUG = true;
+		error_count = 0;
 
 		dEBUG.if({
 			"init Domifare".postln;
@@ -68,16 +69,17 @@ Domifare {
 		// inisitalise clocks
 
 		default_dur = init_dur;
+		input_method = false;
+		liberalise = false;
 
 		this.clock = clock;
-		this.clock.isNil.if({
+		no_clock = this.clock.isNil;
+
+		no_clock.if({
 			this.clock = TempoClock(110/60, 16, queueSize:2048);
-			this.clock.schedAbs(0, {
-				this.clock.beatsPerBar_(16) // See below
-			});
 			// ok, but what if the duration disagrees?
 			default_dur.notNil.if({
-				this.clock.beatDur = default_dur / 16; // See above
+				this.clock.tempo = (default_dur / 16).reciprocal; // See above
 			});
 		});
 
@@ -88,18 +90,30 @@ Domifare {
 		}, {
 
 			// if the clock and the dur disagree?
-			(default_dur != this.clock.beatsPerBar * this.clock.beatDur).if ({
+			(default_dur != (this.clock.beatsPerBar * this.clock.beatDur)).if ({
 				// do we adjust the beat or the duration?
 				// adjust the clock
 
-				this.clock.beatDur = default_dur / this.clock.beatsPerBar;
+				this.clock.tempo = (default_dur / this.clock.beatsPerBar).reciprocal;
 			})
 		});
 
-		syllables = [\Do, \Re, \Mi, \Fa, \So, \La, \Si];
+		no_clock.if({
+			this.clock.schedAbs(0, {
+				this.clock.beatsPerBar_(16) // See below
+			});
+		});
+
+		dEBUG.if({
+			"default_dur is %".format(default_dur).postln;
+		});
+
+		syllables = [\Do, \Re, \Mi, \Fa, \Sol, \La, \Si];
 		key = Key(Scale.major).change(chromatic: 3); // C maj
 
-		vars = (solfasire:nil, solfasisol:nil, soldosifa:nil);
+		//vars = (solfasire:nil, solfasisol:nil, soldosifa:nil);
+		default_var_names = [\solfasire, \solfasisol, \soldosifa];
+		vars = IdentityDictionary.new;
 		numbers = (redodo: 1, remimi:2, refafa: 3, resolsol: 4, relala: 5, resisi: 6, mimido: 7, mimire:8);
 
 		paused = true;
@@ -119,9 +133,6 @@ Domifare {
 		//	controller;
 		//};
 
-
-
-		//default_dur = Ref(init_dur);
 
 		minspace = Ref(0.1); // unref this
 		//recording = Ref(false);
@@ -152,9 +163,10 @@ Domifare {
 		});
 
 
-		DomifareCommand.define(\larelasi, 1, 1, [\var], {|lang, varname|  // declare loop
+		var_maker = DomifareCommand.define(\larelasi, 1, 1, [\varname], {|lang, varname|  // declare loop
 			var loop, action;
-			loop = DomifareLoop(varname, this.dur); // ok, here's our new loop
+			"declare loop".postln;
+			loop = DomifareLoop(varname, this.default_dur); // ok, here's our new loop
 			// add a variable
 			lang.vars.put(varname.asSymbol, loop); // new DomiFareLoop
 
@@ -277,7 +289,7 @@ Domifare {
 
 	pause{
 		dEBUG.if({
-		"\npausing".postln;
+			"\npausing".postln;
 		});
 
 		paused= true;
@@ -287,7 +299,7 @@ Domifare {
 
 	resume{
 		dEBUG.if({
-		"\ngoing".postln;
+			"\ngoing".postln;
 		});
 
 		paused = false;
@@ -303,7 +315,10 @@ Domifare {
 		var loop_dur, numFrames;
 		// if buffer is a number, then it's a bufnum;
 
-		loop_dur = dur ? loop.dur? this.dur.value; // if the passed in dur is nil, use the default
+		loop_dur = dur ? loop.dur? this.default_dur.value; // if the passed in dur is nil, use the default
+
+		loop.dur = loop_dur;
+
 		buffer = buffer ? loop.buffer;
 		clock = clock ? this.clock;
 
@@ -319,28 +334,36 @@ Domifare {
 				});
 				server.sync;
 			});
+			Pseq([
+				Pbind(
+					\instrument, \recorder,
+					\in, in,
+					\buffer, buffer,
+					\dur, loop_dur,
+					\is_recording, Prout({
+						recording = true;
+						//onsetFunc = 1; // start geting onsets
+						//onsets = [];
+						parser.pause = true;
+						this.changed;
+						true.yield; // ok, let's go!
+						// don't yield a second time. The nil stops the recording from repeating
+					})
+				),
+				Pbind(
+					\instrument, Pfunc({
+						recording = false;
+						loop.offsets = parser.onsets.copy; // grab these
+						//onsets = [];
+						//onsetFunc = nil; // stop adding to it
+						parser.pause = false;
+						this.changed; // tell the GUI
+						recordAction.value(loop);
 
-			Pbind(
-				\instrument, \recorder,
-				\in, in,
-				\buffer, buffer,
-				\is_recording, Prout({
-					recording = true;
-					//onsetFunc = 1; // start geting onsets
-					//onsets = [];
-					parser.pause = true;
-					this.changed;
-					true.yield; // ok, let's go!
-					recording = false;
-					loop.offsets = parser.onsets.copy; // grab these
-					//onsets = [];
-					//onsetFunc = nil; // stop adding to it
-					parser.pause = false;
-					this.changed; // tell the GUI
-					recordAction.value(loop);
-					// don't yield. The nil stops the recording from repeating
-				})
-			).play(clock);
+						nil;
+					})
+				)
+			], 1).play(clock);
 
 		}.fork;
 	}
@@ -389,6 +412,7 @@ Domifare {
 		//ui = super.gui(this);
 		this.changed(this, this);
 		//line.addDependant(gui);
+		gui.welcome;
 		^gui;
 	}
 
@@ -414,7 +438,7 @@ Domifare {
 	code_updated {|text|
 
 		dEBUG.if({
-		text.post;
+			text.post;
 		});
 
 		statement = statement ++ text;
@@ -433,6 +457,7 @@ Domifare {
 			listener.code_execute(statement ++ text);
 		});
 		statement = "";
+		this.showpersonship(false);
 	}
 
 	error_handler{|err|
@@ -444,20 +469,36 @@ Domifare {
 		//err.postln;
 		"\nERROR: %".format(err.errorString).postln;
 		statement = "";
+		//this.showpersonship(true); // disabling error counting
 	}
 
 	token_{|word|
 
 		var err, data, result;
 
-		token = word;
+		token = word.toLower;
 		active.value.isNil.if({ // start of a new command
 
 			active = DomifareCommand(word);
 			active.value.isNil.if({
-				// Bad command
-				err = CommandNotFound("Command not found: %.".format(token));
-				this.error_handler(err);
+				// We have not entered a new command,
+				// but if it's 4 letters, maybe it's a new loop
+				(liberalise && "sol".matchRegexp(token.asString, 0, 3)).if({ // does it start with sol?
+					((active.size == 9) || (active.size ==10)).if({
+						// record
+						"Going to record".postln;
+						active = var_maker;//DomifareCommand(\larelasi);
+						result = active.var_(word);
+						result.isKindOf(Function).if({
+							result.value();
+							this.code_executed();
+							active = nil;
+						})
+					});
+				} , {
+					err = CommandNotFound("Command not found: %.".format(token));
+					this.error_handler(err);
+				});
 			});
 
 			// We've either started a new line or thrown an error
@@ -485,7 +526,7 @@ Domifare {
 			});
 
 			// Is the command done?
-			(result == true).if({
+			(result == true).if({ //
 				// the command is done
 				active = nil;
 			},{
@@ -528,6 +569,36 @@ Domifare {
 		parser.requireOnsets = bool;
 	}
 
+	showpersonship {|erred = true|
+		var varname, free;
+
+		erred.not.if({
+			error_count = 0;
+		} , {
+
+			(error_count  > 10.pow(vars.size +1)).if({
+
+				varname = default_var_names.pop;
+				free = false;
+				{varname.notNil && free.not}.while ({
+					free = vars[varname].isNil;
+				});
+
+				varname.notNil.if({
+					this.code_executed("% Errors in a row.\nRecording into %".format(error_count, varname));
+					active = var_maker; //DomifareCommand(\larelasi);
+					active.var_(varname);
+					//result = active.eval();
+					this.eol;
+				});
+				error_count = 0;
+
+			}, {
+				error_count = error_count +1;
+			});
+		});
+	}
+
 }
 
 // Parsing is too cimplicated, so it gets it's own object
@@ -539,21 +610,46 @@ DomifareParser {
 	*initClass{
 
 		StartUp.add {
-			SynthDef(\domifare_input, { arg gate=1, in=0, thresh=0.2, space=0.5, longspace=2;
+			SynthDef(\domifare_input, { arg gate=1, in=0, thresh=0.2, space=0.5, longspace=2,
+				rmswindow = 1600;
 
-				var input, env, fft_pitch, onset, chain, hasfreq, paused, linebreak;
+				var input, env, fft_pitch, onset, chain, hasfreq, paused, linebreak,
+				rms, xings, peaks, freq, fgate, ftrig, changed;
 
 				input = SoundIn.ar(in, 1);
 				env = EnvGen.kr(Env.asr, gate, doneAction:2);
 
 				chain = FFT(LocalBuf(2048), input);
 				onset = Onsets.kr(chain, odftype:\phase);//odftype:\wphase);
-				#fft_pitch, hasfreq = Pitch.kr(input, ampThreshold:thresh);
+				#fft_pitch, hasfreq = Pitch.kr(input, maxFreq:300, ampThreshold:thresh);
 				paused = DetectSilence.ar(input, thresh, space);
 				linebreak = DetectSilence.ar(input, thresh, longspace);
 
+				// time donaim
+				rms = (RunningSum.ar(input.squared, rmswindow)/rmswindow).sqrt;
+				peaks = input - rms;
+				xings = ZeroCrossing.ar(peaks);
+				freq = xings /2;
+
 				//send pitch
 				SendTrig.kr(hasfreq, 0, fft_pitch);
+
+				// triggering/gating time domain pitch
+				//fgate = A2K.kr(EnvFollow.ar(input));
+				fgate = (A2K.kr(paused) - 1 ).abs;
+				// when paused is 1, paused -1 is zero, else, non zero
+
+				// time domain pitch - send after the onset
+				//ftrig = Impulse.kr(10/60);
+				//hasfreq + (TDelay.kr(onset, 0.1));// + fgate;
+				changed = A2K.kr(Changed.ar(freq, 5));
+				ftrig = changed.not;
+				//freq = freq * fgate;
+				//SendTrig.kr(hasfreq * fgate, 4, freq);
+				//SendTrig.kr(TDelay.kr(onset, 0.05) * fgate, 4, freq);
+				SendTrig.kr(ftrig * fgate, 4, freq);
+				//SentTrig.kr(TDelay.kr(changed, 0.05), 4, freq);
+
 
 				// send onsets
 				SendTrig.kr(onset, 1, 1);
@@ -595,7 +691,7 @@ DomifareParser {
 
 	code_updated {|text|
 		lang.dEBUG.if({
-		text.post;
+			text.post;
 		});
 
 		codeListeners.do({|listener|
@@ -639,7 +735,7 @@ DomifareParser {
 			// PUT THIS IN A GUI
 			syn = Synth(\domifare_input,
 				[\gate, 1, \in, 0, \thresh, lang.thresh.asMap, \space, lang.space.asMap,
-					\longspace, lang.longspace.asMap],server);
+					\longspace, lang.longspace.asMap, \rmswindow, 200],server);
 
 			// out with the old (if it exists)
 			OSCdef(\domifare_in).free;
@@ -655,14 +751,18 @@ DomifareParser {
 				//[tag, id, value].postln;
 				case
 				{ id ==0 } { /* pitch */
-					//"pitch".postln;
-					lang.recording.not.if({
-						//"not recording".postln;
-						paused.not.if({
+					"pitch".postln;
 
-							this.freq_(value, time);
+					//"not recording".postln;
+					paused.not.if({
+						lang.dEBUG.if({
+							"autocorrelation %".format(value).postln;
 						});
+						lang.input_method.if ({
+							this.freq_(value, time);
+						},{"not auto".postln;});
 					});
+
 				}
 				{ id ==1 } { /* onset */
 					this.received_onset = time;
@@ -681,6 +781,20 @@ DomifareParser {
 					lang.recording.not.if({
 						paused.not.if({
 							lang.eol;
+						});
+					});
+				}
+				{ id == 4 } { /* time donaim */
+					paused.not.if({
+
+						value = value.asInteger.abs;
+						((value > 0) && (value < 300)).if ({
+							lang.dEBUG.if({
+								"time domain %".format(value).postln;
+							});
+							lang.input_method.not.if({
+								this.freq_(value, time);
+							},{"not time".postln;});
 						});
 					});
 				}
@@ -742,11 +856,13 @@ DomifareParser {
 			// How often do these mismatch???
 			(winner != occurances).if({
 				"WARNING: Ambigious note - % or %"
-				.format(lang.syllables[durs], lang.syllables[winner])
+				.format(lang.syllables[occurances], lang.syllables[winner])
 				.postln;
 			});
 
-			this.code_updated(winner);
+			//winner = lang.syllables[winner];
+
+			this.code_updated(lang.syllables[winner]);
 
 		});
 
@@ -754,6 +870,7 @@ DomifareParser {
 	}
 
 	received_letter_{|letter, number, time|
+		"got letter".postln;
 		requireOnsets.if({
 			// candidates are stored [num, time]
 			pitchSemaphore.wait;
@@ -829,7 +946,7 @@ DomifareParser {
 	freq_{|freq, time|
 		var letter, num;
 
-		num = lang.key.freqToDegree(freq.asInteger);
+		num = lang.key.freqToDegree(freq.asInteger.abs);
 		num = num % lang.syllables.size;
 		letter = lang.syllables.wrapAt(num);
 
@@ -871,13 +988,13 @@ DomifareGui : ObjectGui {
 
 		//super.guiBody(view);
 		model.dEBUG.if({
-		"in guiBody".postln;
+			"in guiBody".postln;
 		});
 
 		sliders = IdentityDictionary.new();
 
 		model.dEBUG.if({
-		view.class.postln;
+			view.class.postln;
 		});
 		//view.bounds = Rect(0,0, 1000, 1000);
 
@@ -903,6 +1020,32 @@ DomifareGui : ObjectGui {
 				model.requireOnsets = false;
 			});
 		});
+
+		// input method button
+		Button(view, 150@25).states_([
+			["Autocorrelation"], ["Frequency Domain"]
+		]). action_({|but|
+			(but.value== 1).if ({
+				model.input_method = true;
+				"switched inputs".postln;
+			}, {
+				model.input_method = false;
+				"switched inputs".postln;
+			})
+		});
+
+		Button(view, 90@25).states_([
+			["Strict"], ["Liberal"]
+		]). action_({|but|
+			(but.value == 1).if({
+				model.liberalise = true;
+				"more liberal".postln;
+			}, {
+				model.liberalise = false;
+				"less liberal".postln;
+			});
+		});
+
 
 		rec_button = Button(view, 40@20).states_([
 			[" ", Color.black, Color.clear],
@@ -1001,7 +1144,7 @@ DomifareGui : ObjectGui {
 
 		(theChanger != this).if({
 			model.dEBUG.if({
-			"updating".postln;
+				"updating".postln;
 			});
 			/*
 			theModel.isKindOf(DomifareLine).if({
@@ -1011,15 +1154,18 @@ DomifareGui : ObjectGui {
 
 			}, { // else normal model
 			*/
+			AppClock.sched(0, {
 			// are we recording?
-			model.recording.value.if({
-				rec_button.value = 1;
-			},{
-				rec_button.value=0;
-			});
+				model.recording.value.if({
+					rec_button.value = 1;
+				},{
+					rec_button.value=0;
+				});
 
-			// just grab the value
-			sliders[\minspace].value = model.minspace.value;
+				// just grab the value
+				sliders[\minspace].value = model.minspace.value;
+
+			});
 
 			// get the busses
 			model.thresh.get({|value| //"thresh %".format(value).postln;
@@ -1033,6 +1179,25 @@ DomifareGui : ObjectGui {
 		});
 	}
 
+	append{|text, colorise = false|
+		var size, start;
+
+		size = text.size;
+
+		AppClock.sched(0.0,{
+			start = textView.string.size -2; // found via trial and error
+			textView.string = textView.string ++ text ++ "\n";
+			// fucking stupid shit to fix the scrolling issue
+			textView.select(textView.string.size+1, 0);
+			textView.stringColor_(Color.white);
+			textView.setFont(font);
+			//textView.syntaxColorize;
+			colorise.if({
+				textView.setStringColor(Color.red, start, size);
+			});
+		});
+	}
+
 	code_updated{|text|
 
 		AppClock.sched(0.0,{lineView.string = lineView.string ++ text;});
@@ -1041,19 +1206,12 @@ DomifareGui : ObjectGui {
 	code_error{|err|
 		var text, start, size;
 
-		text = /*"ERROR:" + */ err.errorString;
+		text = /*"ERROR:" + */ "ReSolRe:" + err.errorString;
 		size = text.size;
 
-		AppClock.sched(0.0,{
-			start = textView.string.size;
-			textView.string = textView.string ++ text ++ "\n";
-			// fucking stupid shit to fix the scrolling issue
-			textView.select(textView.string.size+1, 0);
-			textView.stringColor_(Color.white);
-			textView.setFont(font);
-			//textView.syntaxColorize;
-			textView.setStringColor(Color.red, start, size);
+		this.append(text, true);
 
+		AppClock.sched(0.0,{
 			lineView.value = "";
 		});
 
@@ -1064,15 +1222,54 @@ DomifareGui : ObjectGui {
 
 	code_execute{|text|
 
+		this.append(text);
+
 		AppClock.sched(0.0,{
 			lineView.value = "";
-			textView.string = textView.string ++ text ++ "\n";
-			textView.select(textView.string.size+1, 0);
-			textView.stringColor_(Color.white);
-			textView.setFont(font);
-			//textView.syntaxColorize;
 		});
 	}
+
+	welcome {|dur=15|
+		var text, pause;
+
+		model.dEBUG.if({
+			"In welcome".postln;
+		});
+
+		text = [
+			"DoLaDoRe Fa DoMiFaRe",
+			"Welcome to DoMiFaRe",
+			"SiFaSiRe SiSolReDo SolReDoLa Fa ReMiLa SiSiDoMi MiFaRe",
+			"Please play tuba to enter code",
+			"LaReLaSi - define variable",
+			"DoSolReSi - reorder notes",
+			"DoLaMiDo - stop",
+			"DoMiLaDo - resume",
+			"LaLaMiDo ⏯ fa sidofa",
+			"Press Run to Start",
+			"------------------"
+		];
+
+		pause = dur / text.size;
+
+		{
+			model.dEBUG.if({
+				"Forked dur % lines %".format(pause, text.size).postln;
+				text.postln;
+			});
+			text.do({|phrase|
+				pause.wait;
+				this.append(phrase);
+				model.dEBUG.if({
+					"loop".postln;
+					phrase.postln;
+				});
+			});
+		}.fork
+	}
+
+
+
 
 }
 
@@ -1094,7 +1291,8 @@ DomifareCommand {
 	*define{|name, minargs, maxargs, types, func, launcher|
 		var command;
 		"new command".postln;
-		command = dict[name.asSymbol];
+		name = name.toLower;
+		command = dict[name.toLower.asSymbol];
 		command.isNil.if({
 			"new command coined".postln;
 			minargs.notNil.if({ // don't create a new one for nil values
@@ -1107,6 +1305,7 @@ DomifareCommand {
 
 	*new{|name|
 		var command;
+		name = name.toLower;
 		command = dict[name.asSymbol];
 		^command;
 	}
@@ -1133,6 +1332,14 @@ DomifareCommand {
 					vars = vars ++ newvar;
 				});
 			}
+			{ (type == \varname) || (type == DomifareLoop) } {
+				(newvar.isKindOf(String).not &&
+					newvar.isKindOf(Symbol).not).if({
+					ret = WrongType("Variable is wrong type.");
+				}, {
+					vars = vars ++ newvar;
+				});
+			}
 			{ ( type == \number) || (type == SimpleNumber) } {
 				newvar.isKindOf(SimpleNumber).not.if({
 					ret = WrongType("Variable is wrong type.");
@@ -1140,7 +1347,7 @@ DomifareCommand {
 					vars = vars ++ newvar;
 				});
 			}
-			{ ( type == \operator) || (type = DomifareCommand) } {
+			{ ( type == \operator) || (type == DomifareCommand) } {
 				(newvar.isKindOf(Symbol) || newvar.isKindOf(String)).if({
 					newvar = DomifareCommand(newvar.asSymbol);
 				});
@@ -1199,27 +1406,34 @@ DomifareLoop {
 	var <name, <>dur, <buffer, <offsets, <durs, <start_durs, isplay;
 
 	*new {|name, dur, buffer, offsets|
-		^super.new.copyArgs(name.asSymbol, dur, buffer).offsets_(offsets);
+		^super.newCopyArgs(name.asSymbol, dur).init(offsets, buffer);
 	}
 
-	pr_p {
-		var pdef;
-		pdef = Pdef(name);
-		pdef.source.isNil.if({
-			Pdef(name,
-				Pbind(
-					\instrument, \samplePlayer,
-					\bufnum, buffer,
-					\db, -3,
-					\start_durs, [0, dur],
-					\pan, 0.5.rrand(-0.5),
-					\rate, 1,
-					[\startFrame, \dur], Pfunc({|evt|
-						evt[\start_durs]
-					})
-				)
+	init {|offsets, buffer|
+		//var pdef;
+
+		this.offsets_(offsets);
+
+		//pdef = Pdef(name);
+		//pdef.source.isNil.if({
+		Pdef(name,
+			Pbind(
+				\instrument, \samplePlayer,
+				\bufnum, -1,
+				\db, -3,
+				\start_durs, [0, dur],
+				\pan, 0.5.rrand(-0.5),
+				\rate, 1,
+				[\startFrame, \dur], Pfunc({|evt|
+					evt[\start_durs]
+				}),
+				\status, Pfunc({|evt| "playing loop %".format(evt[\dur]).postln})
 			)
-		})
+		);
+		//})
+		buffer.notNil.if({
+			this.buffer_(buffer);
+		});
 	}
 
 
@@ -1233,6 +1447,9 @@ DomifareLoop {
 
 	buffer_ { |buf|
 		var pd;
+
+		buffer = buf;
+
 		pd = this.pbindef();
 		pd.notNil.if({
 			Pbindef(name,
@@ -1244,16 +1461,25 @@ DomifareLoop {
 	offsets_{|offs|
 
 		// passing in an array of offet times can be used to calculate durations
-		var diffs, last;
+		var diffs, last, actionable=true;
 
-		diffs = offs.differentiate; // diffs[1..n] has the first n-1 durs
-		diffs.removeAt(0); // the first item is unchanged by differentiate
-		durs = diffs ++ (dur - diffs.sum); // calculate the final duration
-		offsets = offs - offs.first; // when does each event start?
+		offs.isNil.if({
+			start_durs = [0, dur];
+		}, {
+			(offs.size < 1).if({
+				start_durs = [0, dur];
+			} , {
 
-		// now pair them
-		start_durs = offsets.collect({|item, index|
-			[item, durs[index]]
+				diffs = offs.differentiate; // diffs[1..n] has the first n-1 durs
+				diffs.removeAt(0); // the first item is unchanged by differentiate
+				durs = diffs ++ (dur - diffs.sum); // calculate the final duration
+				offsets = offs - offs.first; // when does each event start?
+
+				// now pair them
+				start_durs = offsets.collect({|item, index|
+					[item, durs[index]]
+				});
+			});
 		});
 	}
 
@@ -1261,24 +1487,30 @@ DomifareLoop {
 
 	play {|clock, quant ...args|
 
-		var pd;
+		var pd, isExt = false;
 
-		pd = this.pbindef();
+		pd = this.pdef();
+
+		// Compatibility with BBCut
+		\ExternalClock.asClass.notNil.if({
+			isExt = clock.isKindOf(ExternalClock);
+		});
 
 		pd.notNil.if({
 
-			clock.isKindOf(ExternalClock).if({ // this also checks for nil
+			isExt.if({ // this also checks for nil
 				isplay.isNil.if({ isplay = false });
 				isplay.not.if({
-					"external".postln;
+					//"external".postln;
 					pd.playExt(clock, nil, quant);
 					isplay = true;
 				});
 			} , {
 				"tempo".postln;
-				pd.isPlaying.not.if({
-					pd.play(clock, nil, quant);
-				});
+				pd.dump;
+				//pd.isPlaying.not.if({
+				pd.play(clock, nil, quant);
+				//});
 			});
 		})
 
