@@ -9,12 +9,12 @@ Domifare {
 
 		StartUp.add {
 
-			SynthDef(\recorder, { arg gate = 1, in=0, bufnum=0;
+			SynthDef(\domifare_recorder, { arg gate = 1, in=0, bufnum=0;
 
 				var input, env, recorder;
 
 				env = EnvGen.kr(Env.asr, gate, doneAction:2);
-				input = SoundIn.ar(in, 1) * env;
+				input = SoundIn.ar(in) * env;
 				RecordBuf.ar(input, bufnum, loop:0, doneAction:2);
 
 			}).writeDefFile;
@@ -170,15 +170,19 @@ Domifare {
 
 		var_maker = DomifareCommand.define(\larelasi, 1, 1, [\varname], {|lang, varname|  // declare loop
 			var loop, action;
-			"declare loop".postln;
-			loop = DomifareLoop(varname, this.default_dur); // ok, here's our new loop
+			"declare loop %".format(varname).postln;
+			loop = DomifareLoop(varname, lang.default_dur*4); // ok, here's our new loop
 			// add a variable
 			lang.vars.put(varname.asSymbol, loop); // new DomiFareLoop
 
 			// record into it
 			// the recording method handles pausing "text" input
 			this.pr_record(loop, recordAction: {
-				loop.play(this.clock);
+				dEBUG.if({
+					"Record action".postln;
+				});
+
+				loop.play(lang.clock);
 			});
 
 
@@ -216,6 +220,12 @@ Domifare {
 			(guess < x ).if({ // double check this logic
 				cmd.eval.value
 			});
+		}, this);
+		DomifareCommand.define(\dosolmisi, 1, 1, [\var], {|lang, loop|
+			loop.shake;
+		}, this);
+		DomifareCommand.define(\simisoldo, 1, 1, [\var], {|lang, loop|
+			loop.unshake;
 		}, this);
 
 
@@ -318,7 +328,8 @@ Domifare {
 		var loop_dur, numFrames;
 		// if buffer is a number, then it's a bufnum;
 
-		loop_dur = dur ? loop.dur? this.default_dur.value; // if the passed in dur is nil, use the default
+		loop_dur = dur ? loop.dur? (this.default_dur.value * 4); // if the passed in dur is nil, use the default
+		// 4 bars!!
 
 		loop.dur = loop_dur;
 
@@ -330,18 +341,30 @@ Domifare {
 		// fork this because it requires syncing
 		{
 			buffer.isNil.if({
-				buffer = Buffer.alloc(server, numFrames, completionMessage:{|buffer|
-					loop.buffer = buffer;
-					bufferAction.value(buffer);
-					[]
-				});
+				buffer = Buffer.alloc(server, numFrames//, completionMessage:{|buffer|
+					//loop.buffer = buffer;
+					//bufferAction.value(buffer);
+					//[]
+					//}
+				);
 				server.sync;
+
+				// This is literally why sync exists
+
+				loop.buffer = buffer;
+				bufferAction.value(buffer);
+				server.sync;
+
 			});
+			dEBUG.if({
+				"recording into %".format(buffer.bufnum).postln;
+			});
+
 			Pseq([
 				Pbind(
-					\instrument, \recorder,
+					\instrument, \domifare_recorder,
 					\in, in,
-					\buffer, buffer,
+					\bufnum, buffer.bufnum,
 					\dur, loop_dur,
 					\is_recording, Prout({
 						recording = true;
@@ -351,6 +374,7 @@ Domifare {
 						this.changed;
 						true.yield; // ok, let's go!
 						// don't yield a second time. The nil stops the recording from repeating
+						nil.yield;
 					})
 				),
 				Pbind(
@@ -477,7 +501,7 @@ Domifare {
 
 	token_{|word|
 
-		var err, data, result, token;
+		var err, data, result, token, success = false;
 
 		token = word.toLower;
 		active.value.isNil.if({ // start of a new command
@@ -487,7 +511,7 @@ Domifare {
 				// We have not entered a new command,
 				// but if it's 4 letters, maybe it's a new loop
 				(liberalise && "sol".matchRegexp(token.asString, 0, 3)).if({ // does it start with sol?
-					((active.size == 9) || (active.size ==10)).if({
+					((token.size == 9) || (token.size ==10)).if({
 						// record
 						"Going to record".postln;
 						active = var_maker;//DomifareCommand(\larelasi);
@@ -495,10 +519,13 @@ Domifare {
 						result.isKindOf(Function).if({
 							result.value();
 							this.code_executed(var_maker.name.asString + token);
+							active.clear;
 							active = nil;
+							success = true;
 						})
 					});
-				} , {
+				});
+				success.not.if({
 					err = CommandNotFound("Command not found: %.".format(token));
 					this.error_handler(err);
 				});
@@ -525,6 +552,7 @@ Domifare {
 			result.isKindOf(Error).if({
 				this.error_handler(result);
 				// this command is done
+				active.clear;
 				active = nil;
 			});
 
@@ -534,9 +562,13 @@ Domifare {
 				active = nil;
 			},{
 				(result.isKindOf(Function)).if({
-					result.value;
+					err = result.value;
 					this.code_executed(active.name.asString + word);
 					// the command is done
+					err.isKindOf(Error).if({
+						this.error_handler(err);
+					});
+					active.clear;
 					active = nil;
 				})
 			});
@@ -547,23 +579,28 @@ Domifare {
 	}
 
 	eol{
+
 		var result;
 
 		active.notNil.if({
-			// execute the command
-			result = active.eval;
-			result.notNil.if({
-				result.isKindOf(Error).if({
-					this.error_handler(result);
-				}, {
-					result.value;
+			// are we ready to execute?
+			active.enoughVars.if({
+				// execute the command
+				result = active.eval;
+				result.notNil.if({
+					result.isKindOf(Error).if({
+						this.error_handler(result);
+					}, {
+						result.value;
+					});
 				});
+
+				this.code_executed();
+
+				// this command is done
+				active.clear;
+				active = nil;
 			});
-
-			this.code_executed();
-
-			// this command is done
-			active = nil;
 		});
 
 	}
@@ -754,65 +791,67 @@ DomifareParser {
 			OSCdef(\domifare_in, {|msg, time, addr, recvPort|
 				var tag, node, id, value, letter, result, err;
 
-				semaphore.wait;
+				{
+					semaphore.wait;
 
-				#tag, node, id, value = msg;
-				//[tag, id, value].postln;
-				case
-				{ id ==0 } { /* pitch */
-					"pitch".postln;
+					#tag, node, id, value = msg;
+					//[tag, id, value].postln;
+					case
+					{ id ==0 } { /* pitch */
+						"pitch".postln;
 
-					//"not recording".postln;
-					paused.not.if({
-						lang.dEBUG.if({
-							"autocorrelation %".format(value).postln;
-						});
-						lang.input_method.if ({
-							this.freq_(value, time);
-						},{"not auto".postln;});
-					});
-
-				}
-				{ id ==1 } { /* onset */
-					this.received_onset = time;
-
-				}
-				{ id ==2 } { /* space */
-
-					paused.not.if({
-
-						lang.dEBUG.if({ "space".postln });
-
-						this.received_space = time;
-
-
-					});
-
-				}
-				{ id ==3 } { /* EOL */
-
-					paused.not.if({
-						lang.dEBUG.if({ "eol".postln; });
-						lang.eol;
-
-					});
-				}
-				{ id == 4 } { /* time donaim */
-					paused.not.if({
-
-						value = value.asInteger.abs;
-						((value > 0) && (value < 300)).if ({
+						//"not recording".postln;
+						paused.not.if({
 							lang.dEBUG.if({
-								"time domain %".format(value).postln;
+								"autocorrelation %".format(value).postln;
 							});
-							lang.input_method.not.if({
+							lang.input_method.if ({
 								this.freq_(value, time);
-							},{"not time".postln;});
+							},{"not auto".postln;});
 						});
-					});
-				};
 
-				semaphore.signal;
+					}
+					{ id ==1 } { /* onset */
+						this.received_onset = time;
+
+					}
+					{ id ==2 } { /* space */
+
+						paused.not.if({
+
+							lang.dEBUG.if({ "space".postln });
+
+							this.received_space = time;
+
+
+						});
+
+					}
+					{ id ==3 } { /* EOL */
+
+						paused.not.if({
+							lang.dEBUG.if({ "eol".postln; });
+							lang.eol;
+
+						});
+					}
+					{ id == 4 } { /* time donaim */
+						paused.not.if({
+
+							value = value.asInteger.abs;
+							((value > 0) && (value < 300)).if ({
+								lang.dEBUG.if({
+									"time domain %".format(value).postln;
+								});
+								lang.input_method.not.if({
+									this.freq_(value, time);
+								},{"not time".postln;});
+							});
+						});
+					};
+
+					semaphore.signal;
+				}.fork;
 
 			}, '/tr', server.addr);
 		});
@@ -963,8 +1002,9 @@ DomifareParser {
 		var letter, num;
 
 		num = lang.key.freqToDegree(freq.asInteger.abs);
-		num = num % lang.syllables.size;
 		letter = lang.syllables.wrapAt(num);
+		num = num % lang.syllables.size;
+
 
 		this.received_letter_(letter, num, time);
 	}
@@ -1329,6 +1369,10 @@ DomifareCommand {
 
 	var_{|newvar|
 		var newindex, type, ret;
+
+		"newvar %".format(newvar).postln;
+
+
 		vars.isNil.if({
 			vars = [];
 		});
@@ -1345,7 +1389,7 @@ DomifareCommand {
 				newvar.isKindOf(DomifareLoop).not.if({
 					ret = WrongType("Variable is wrong type.");
 				}, {
-					vars = vars ++ newvar;
+					vars = vars.add(newvar);
 				});
 			}
 			{ (type == \varname) || (type == DomifareLoop) } {
@@ -1353,14 +1397,15 @@ DomifareCommand {
 					newvar.isKindOf(Symbol).not).if({
 					ret = WrongType("Variable is wrong type.");
 				}, {
-					vars = vars ++ newvar;
+					"var name %".format(newvar).postln;
+					vars = vars.add(newvar);
 				});
 			}
 			{ ( type == \number) || (type == SimpleNumber) } {
 				newvar.isKindOf(SimpleNumber).not.if({
 					ret = WrongType("Variable is wrong type.");
 				}, {
-					vars = vars ++ newvar;
+					vars = vars.add(newvar);
 				});
 			}
 			{ ( type == \operator) || (type == DomifareCommand) } {
@@ -1397,6 +1442,7 @@ DomifareCommand {
 
 	eval {
 		// should return a function to support sub commands
+
 		^{
 			func.value(launcher, *vars);
 		}
@@ -1412,6 +1458,11 @@ DomifareCommand {
 		this.clear
 	}
 
+	enoughVars {
+
+		^(vars.size >= minargs)
+	}
+
 }
 
 
@@ -1422,7 +1473,7 @@ DomifareLoop {
 	var <name, <>dur, <buffer, <offsets, <durs, <start_durs, isplay;
 
 	*new {|name, dur, buffer, offsets|
-		^super.newCopyArgs(name.asSymbol, dur).init(offsets, buffer);
+		^super.newCopyArgs(name.toLower.asSymbol, dur).init(offsets, buffer);
 	}
 
 	init {|offsets, buffer|
@@ -1443,7 +1494,8 @@ DomifareLoop {
 				[\startFrame, \dur], Pfunc({|evt|
 					evt[\start_durs]
 				}),
-				\status, Pfunc({|evt| "playing loop % %".format(name, evt[\dur]).postln})
+				\status, Pfunc({|evt|
+					"playing loop % % bufnum % %".format(name, evt[\dur], /*(buffer !? buffer.bufnum ? -1),*/ evt[\bufnum]).postln;})
 			)
 		);
 		//})
@@ -1469,7 +1521,7 @@ DomifareLoop {
 		pd = this.pbindef();
 		pd.notNil.if({
 			Pbindef(name,
-				\bufnum, buffer
+				\bufnum, buffer.bufnum
 			);
 		});
 	}
