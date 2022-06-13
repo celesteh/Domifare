@@ -1,6 +1,6 @@
 Domifare {
 
-	var <syllables, <key, responder, <vars, <numbers, token, lastrecv, active, data,
+	var <syllables, <key, responder, <vars, <numbers, lastrecv, active, data,
 	paused, syn, <>clock, gui, <thresh, <space, <longspace, <minspace,
 	<recording, <server, <default_dur,<guiClass, default_var_names, var_maker,
 	codeListeners, parser, statement, <>dEBUG, error_count, <>input_method, >liberalise;
@@ -215,8 +215,6 @@ Domifare {
 
 
 
-
-		token = '';
 		lastrecv = 0;
 
 		srv.isNil.if({
@@ -474,12 +472,12 @@ Domifare {
 
 	token_{|word|
 
-		var err, data, result;
+		var err, data, result, token;
 
 		token = word.toLower;
 		active.value.isNil.if({ // start of a new command
 
-			active = DomifareCommand(word);
+			active = DomifareCommand(token);
 			active.value.isNil.if({
 				// We have not entered a new command,
 				// but if it's 4 letters, maybe it's a new loop
@@ -488,10 +486,10 @@ Domifare {
 						// record
 						"Going to record".postln;
 						active = var_maker;//DomifareCommand(\larelasi);
-						result = active.var_(word);
+						result = active.var_(token);
 						result.isKindOf(Function).if({
 							result.value();
-							this.code_executed();
+							this.code_executed(var_maker.name.asString + token);
 							active = nil;
 						})
 					});
@@ -499,18 +497,18 @@ Domifare {
 					err = CommandNotFound("Command not found: %.".format(token));
 					this.error_handler(err);
 				});
-			});
+			}, {"new command %".format(token).postln;});
 
 			// We've either started a new line or thrown an error
 		},{
 			// Already in he middle of a command
 
 			// Could this token be a number?
-			data = numbers[token];
+			data = numbers[token.asSymbol];
 
 			data.isNil.if({
 				// Could this token be a var?
-				data = vars[token];
+				data = vars[token.asSymbol];
 
 				data.isNil.if({
 					// the token string is the data
@@ -532,7 +530,7 @@ Domifare {
 			},{
 				(result.isKindOf(Function)).if({
 					result.value;
-					this.code_executed();
+					this.code_executed("" + active.name + word);
 					// the command is done
 					active = nil;
 				})
@@ -1023,7 +1021,7 @@ DomifareGui : ObjectGui {
 
 		// input method button
 		Button(view, 150@25).states_([
-			["Autocorrelation"], ["Frequency Domain"]
+			["Frequency Domain"],["Autocorrelation"]
 		]). action_({|but|
 			(but.value== 1).if ({
 				model.input_method = true;
@@ -1047,7 +1045,7 @@ DomifareGui : ObjectGui {
 		});
 
 
-		rec_button = Button(view, 40@20).states_([
+		rec_button = Button(view, 40@25).states_([
 			[" ", Color.black, Color.clear],
 			["R", Color.black, Color.red]]);
 
@@ -1261,7 +1259,7 @@ DomifareGui : ObjectGui {
 				pause.wait;
 				this.append(phrase);
 				model.dEBUG.if({
-					"loop".postln;
+					//"loop".postln;
 					phrase.postln;
 				});
 			});
@@ -1292,7 +1290,7 @@ DomifareCommand {
 		var command;
 		"new command".postln;
 		name = name.toLower;
-		command = dict[name.toLower.asSymbol];
+		command = dict[name.asSymbol];
 		command.isNil.if({
 			"new command coined".postln;
 			minargs.notNil.if({ // don't create a new one for nil values

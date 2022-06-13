@@ -11,5 +11,4 @@ s.waitForBoot({
 });
 )
 
-// Send freq when NOT changed
-// X errors in a row automagically records into one of the 4 default vars.
+// input type button was reversed
