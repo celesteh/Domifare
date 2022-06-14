@@ -29,11 +29,12 @@ Domifare {
 			evt[\start_durs]
 			*/ // args amp, pan, rate, bufnum
 
-			SynthDef(\samplePlayer, {|out=0, amp=0.2, pan=0, rate=1, bufnum=0, dur=1, startFrame=0|
+			SynthDef(\samplePlayer, {|out=0, amp=0.2, pan=0, rate=1, bufnum=0, dur=1, startFrame=0,gate = 1|
 
 				var env, player, panner;
 
-				env = EnvGen.kr(Env([0, 1, 0], [0.1, dur, 0.2]), doneAction:2);
+				//env = EnvGen.kr(Env([0, 1, 0], [0.1, dur, 0.2]), doneAction:2);
+				env = EnvGen.kr(Env.asr(releaseTime:0.2), gate, doneAction:2);
 				player = PlayBuf.ar(1, bufnum, rate * BufRateScale.kr(bufnum), startPos:startFrame, loop:1);
 				panner = Pan2.ar(player * env, pan, amp);
 
@@ -221,10 +222,11 @@ Domifare {
 				cmd.eval.value
 			});
 		}, this);
-		DomifareCommand.define(\dosolmisi, 1, 1, [\var], {|lang, loop|
+		DomifareCommand.define(\dosolresi, 1, 1, [\var], {|lang, loop|
+			dEBUG.if({"shaking %".format(loop.name).postln});
 			loop.shake;
 		}, this);
-		DomifareCommand.define(\simisoldo, 1, 1, [\var], {|lang, loop|
+		DomifareCommand.define(\siresoldo, 1, 1, [\var], {|lang, loop|
 			loop.unshake;
 		}, this);
 
@@ -1529,7 +1531,7 @@ DomifareLoop {
 	offsets_{|offs|
 
 		// passing in an array of offet times can be used to calculate durations
-		var diffs, last, actionable=true;
+		var diffs, last, start_frames, prev, sum;
 
 		offs.isNil.if({
 			start_durs = [0, dur];
@@ -1542,9 +1544,20 @@ DomifareLoop {
 				diffs.removeAt(0); // the first item is unchanged by differentiate
 				durs = diffs ++ (dur - diffs.sum); // calculate the final duration
 				offsets = offs - offs.first; // when does each event start?
+				buffer.notNil.if({
+					prev = 0;
+					sum = 0;
+					start_frames = (offsets.normalizeSum * buffer.numFrames).collect({|i|
+						prev = sum;
+						sum = sum + i;
+						prev;
+					});
+				}, {
+					start_frames = offsets; // junk, but so is the input;
+				});
 
 				// now pair them
-				start_durs = offsets.collect({|item, index|
+				start_durs = start_frames.collect({|item, index|
 					[item, durs[index]]
 				});
 			});
@@ -1603,7 +1616,7 @@ DomifareLoop {
 	}
 
 	shake {
-		var pd;
+		var pd, note_dur, frames, divs;
 		//var indexes, offs, ds, pd;
 
 		// we have to scamble the offsets and durations both together
@@ -1628,6 +1641,15 @@ DomifareLoop {
 
 		//offsets = offs;
 		//durs = ds;
+		// even divisions
+		divs = 32;
+
+		note_dur = dur / divs;
+		frames = buffer.numFrames / divs;
+
+		//start_durs = divs.collect({|i|
+		//	[frames * i, note_dur]
+		//});
 
 		pd = this.pbindef();
 		pd.notNil.if({
