@@ -1264,8 +1264,8 @@ DomifareGui : ObjectGui {
 	code_error{|err|
 		var text, start, size;
 
-		text = /*"ERROR:" + */ "ReSolRe:" + err.errorString;
-		size = text.size;
+		text = /*"ERROR:" + */ "RESOLRE:" + err.errorString;
+		//size = text.size;
 
 		this.append(text, true);
 
@@ -1295,15 +1295,15 @@ DomifareGui : ObjectGui {
 		});
 
 		text = [
-			"DoLaDoRe Fa DoMiFaRe",
-			"Welcome to DoMiFaRe",
-			"SiFaSiRe SiSolReDo SolReDoLa Fa ReMiLa SiSiDoMi MiFaRe",
+			"Doladore fa Domifare",
+			"Welcome to Domifare",
+			"Sifasire sisolredo solredola fa remiaa sisidomi mifare",
 			"Please play tuba to enter code",
-			"LaReLaSi - define variable",
-			"DoSolReSi - reorder notes",
-			"DoLaMiDo - stop",
-			"DoMiLaDo - resume",
-			"LaLaMiDo ⏯ fa sidofa",
+			"Larelasi - define variable",
+			"Dosolresi - reorder notes",
+			"Dolamido - stop",
+			"Domilado - resume",
+			"Lalamido ⏯ fa sidofa",
 			"Press Run to Start",
 			"------------------"
 		];
