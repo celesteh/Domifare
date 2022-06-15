@@ -175,6 +175,7 @@ Domifare {
 			loop = DomifareLoop(varname, lang.default_dur*4); // ok, here's our new loop
 			// add a variable
 			lang.vars.put(varname.asSymbol, loop); // new DomiFareLoop
+			lang.changed(loop);
 
 			// record into it
 			// the recording method handles pausing "text" input
@@ -1030,7 +1031,7 @@ NoSuchVariable : DomifareError {}
 
 DomifareGui : ObjectGui {
 
-	var history, activeLine, sliders, rec_button, run_button, textView, lineView, font, onsetButton;
+	var history, activeLine, sliders, rec_button, run_button, textView, lineView, font, onsetButton, vars;
 
 	*new {|model|
 		^super.new(model).init;
@@ -1116,7 +1117,7 @@ DomifareGui : ObjectGui {
 		view.flow({|flow|
 			var width;
 
-			width = view.innerBounds.width - (ServerMeterView.getWidth(1,0) + ServerMeterView.getWidth(0,2)+100);
+			width = view.innerBounds.width - (ServerMeterView.getWidth(1,0) + ServerMeterView.getWidth(0,2)+350);
 			flow.startRow;
 			font = Font("Courier",18);
 			textView = TextView(flow, //bounds
@@ -1134,6 +1135,12 @@ DomifareGui : ObjectGui {
 
 			flow.resize_(5);
 		});
+
+		vars = EZListView(view, 200@(ServerMeterView.height *2), "Larelasi - Variables" );
+		vars.font = font;
+
+		//vars.setColors(Color.black, Color.clear, Color.black, Color.white, Color.white, Color.black, Color.black);
+
 		ServerMeterView.new(model.server, view, 0@0, 0, 2).view.resize_(6); // right
 
 		view.startRow;
@@ -1222,6 +1229,10 @@ DomifareGui : ObjectGui {
 
 				// just grab the value
 				sliders[\minspace].value = model.minspace.value;
+
+				theChanger.isKindOf(DomifareLoop).if({
+					vars.addItem(theChanger.name.asSymbol, {});
+				});
 
 			});
 
