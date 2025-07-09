@@ -2,7 +2,7 @@
 
 A live coding language for music that is entered by playing or singing commands in solresol.
 
-Dependencies: [TuningLib Quark](https://github.com/celesteh/TuningLib)
+Dependencies: [BiLETools Quark](https://github.com/celesteh/BiLETools) for graphics
 
 It's creation is being documented on a blog: http://www.celesteh.com/blog/tag/domifare/
 

@@ -1,0 +1,49 @@
+TITLE:: Domifare
+summary:: A live coding language for music that is entered by playing or singing commands in solresol.
+categories:: Live Coding, Libraries/Domifare
+
+DESCRIPTION::
+A live coding language,modelled on ixilang, that is designed for instrumentalists. The GUI is optiised for
+tuba, but it should work for other kinds of players also.
+
+Under nromal conditions, the user would not use any of the instance methods, but instead control the
+object/language via pitch-based input.
+
+
+CLASSMETHODS::
+
+METHOD:: new
+Creates a new instance of Domifare, ready to run. This boots the server.
+
+ARGUMENT:: server
+An optional Server argument. If noneis provided, it uses Server.default
+
+ARGUMENT:: clock
+An optional TempoClock or ExternalClock. If none is provided, it creates a clock.
+
+ARGUMENT:: dur
+An optional duration for loops. If none is provided, it calculates one from the clock. If the clock and the dur do not divide evenly, the clock is adjusted.
+
+
+
+INSTANCEMETHODS::
+
+
+
+METHOD:: gui
+Open the GUI. You will need to resize the GUI window.
+
+ARGUMENT:: parent
+Optional if you want the GUI in an existing window
+
+ARGUMENT:: bounds
+Optional if you want the GUI in an existing window
+
+
+
+EXAMPLES::
+
+code::
+d = Domifare(s);
+d.gui;
+::

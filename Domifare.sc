@@ -1,6 +1,6 @@
 Domifare {
 
-	var <syllables, <key, responder, <vars, <numbers, lastrecv, active, data,
+	var <syllables, responder, <vars, <numbers, lastrecv, active, data,
 	paused, syn, <>clock, gui, <thresh, <space, <longspace, <minspace,
 	<recording, <server, <default_dur,<guiClass, default_var_names, var_maker,
 	codeListeners, parser, statement, <>dEBUG, error_count, <>input_method, >liberalise,
