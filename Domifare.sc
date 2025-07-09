@@ -3,7 +3,8 @@ Domifare {
 	var <syllables, <key, responder, <vars, <numbers, lastrecv, active, data,
 	paused, syn, <>clock, gui, <thresh, <space, <longspace, <minspace,
 	<recording, <server, <default_dur,<guiClass, default_var_names, var_maker,
-	codeListeners, parser, statement, <>dEBUG, error_count, <>input_method, >liberalise;
+	codeListeners, parser, statement, <>dEBUG, error_count, <>input_method, >liberalise,
+	scale;
 
 	*initClass{
 
@@ -54,7 +55,7 @@ Domifare {
 
 	init {|srv, clock, init_dur|
 
-		var no_clock;
+		var no_clock, major, degrees;
 
 		dEBUG = true;
 		error_count = 0;
@@ -115,7 +116,11 @@ Domifare {
 		});
 
 		syllables = [\Do, \Re, \Mi, \Fa, \Sol, \La, \Si];
-		key = Key(Scale.major).change(chromatic: 3); // C maj
+		//key = Key(Scale.major).change(chromatic: 3); // C maj
+		scale = Scale.major;
+		//degrees = (major.degrees + major.degrees[3]) % major.pitchesPerOctave; // start on C
+		//scale = Scale.new(#degree, 12,Tuning.et12);
+
 
 		//vars = (solfasire:nil, solfasisol:nil, soldosifa:nil);
 		default_var_names = [\solfasire, \solfasisol, \soldosifa];
@@ -398,6 +403,19 @@ Domifare {
 		}.fork;
 	}
 
+	freqToDegree{|f|
+
+		var midinote, degree, index;
+
+		midinote = f.cpsmidi;
+		degree = midinote % scale.pitchesPerOctave;
+		index = scale.degrees.indexInBetween(degree);
+		//^syllables[index.round];
+		^index.round;
+	}
+
+
+
 	default_dur_{|newdur, theChanger|
 
 		default_dur = newdur;
@@ -435,7 +453,10 @@ Domifare {
 	}
 
 	gui {|parent, bounds|
-		var gui;
+		var gui, view;
+
+		//view = VLayoutView(Window(), bounds);
+		//parent.front;
 		//guiClass = this.guiClass;
 		gui = guiClass.new( this );
 		gui.gui( parent, bounds );
@@ -732,13 +753,13 @@ DomifareParser {
 
 	}
 
-	code_updated {|text|
+	code_updated {|text, octave|
 		lang.dEBUG.if({
 			text.post;
 		});
 
 		codeListeners.do({|listener|
-			listener.code_updated(text);
+			listener.code_updated(text, octave);
 		})
 	}
 
@@ -1002,14 +1023,16 @@ DomifareParser {
 	}
 
 	freq_{|freq, time|
-		var letter, num;
+		var letter, num, octave;
 
-		num = lang.key.freqToDegree(freq.asInteger.abs);
-		letter = lang.syllables.wrapAt(num);
-		num = num % lang.syllables.size;
+		//num = lang.key.freqToDegree(freq.asInteger.abs);
+		//num.debug(this);
+		//letter = lang.syllables.wrapAt(num);
+		//num = num % lang.syllables.size;
+		num = lang.freqToDegree(freq);
+		letter = lang.syllables[num];
 
-
-		this.received_letter_(letter, num, time);
+		this.received_letter_(letter, num, time, octave);
 	}
 
 	update {
@@ -1031,7 +1054,7 @@ NoSuchVariable : DomifareError {}
 
 DomifareGui : ObjectGui {
 
-	var history, activeLine, sliders, rec_button, run_button, textView, lineView, font, onsetButton, vars;
+	var history, activeLine, sliders, rec_button, run_button, textView, lineView, font, onsetButton, vars, notation;
 
 	*new {|model|
 		^super.new(model).init;
@@ -1041,10 +1064,11 @@ DomifareGui : ObjectGui {
 		model.registerCodeListener(this);
 	}
 
-	guiBody { arg view;
+	guiBody { arg viewHolder;
 
-		var index;
-
+		var index, width, meter, view, examples, exViews;
+		var buttonLayout, inputLayout, sliderLayout, exampleLayout, meterView;
+		/*
 		//super.guiBody(view);
 		model.dEBUG.if({
 			"in guiBody".postln;
@@ -1056,6 +1080,8 @@ DomifareGui : ObjectGui {
 			view.class.postln;
 		});
 		//view.bounds = Rect(0,0, 1000, 1000);
+
+		//buttonLayout = HLayout(
 
 		run_button = Button(view, 90@25).states_([
 			["Run ⏯"], ["Pause ⏸"]
@@ -1110,30 +1136,37 @@ DomifareGui : ObjectGui {
 			[" ", Color.black, Color.clear],
 			["R", Color.black, Color.red]]);
 
+
+
+
 		//view.startRow;
 
 		view.startRow;
-		ServerMeterView.new(model.server, view, 0@0, 1, 0).view.resize_(4); // left
-		view.flow({|flow|
-			var width;
+		meter = ServerMeterView.new(model.server, view, 0@0, 1, 0).view.resize_(4); // left
+		//meter = meter.view;
 
-			width = view.innerBounds.width - (ServerMeterView.getWidth(1,0) + ServerMeterView.getWidth(0,2)+350);
+		view.flow({|flow|
+			//var width;
+
+			width = view.innerBounds.width - (ServerMeterView.getWidth(1,0) + ServerMeterView.getWidth(0,2)+350+500);
 			flow.startRow;
 			font = Font("Courier",18);
-			textView = TextView(flow, //bounds
+			textView = TextView(view, //bounds
 				Rect(0,0,width,(ServerMeterView.height *2)-10)
 			).autohidesScrollers_(false).font_(font).resize_(5); // stretch
 			textView.background = Color.black;
 			textView.setStringColor(Color.white); textView.stringColor_(Color.white);
 			flow.startRow;
 
-			lineView = EZText(flow, Rect(0,0,width, 30), "Input: ").font_(font);
+			lineView = EZText(view, Rect(0,0,width, 30), "Input: ").font_(font);
 			lineView.textField.value="";
 			lineView.setColors(Color.grey,Color.white,background: Color.grey(0.7));
 			lineView = lineView.textField;
 			lineView.resize(8);
 
-			flow.resize_(5);
+		notation = CleffView(view, (view.innerBounds.width-50)@100); //image heigh is 125
+
+			flow.resize_(4); // was 5
 		});
 
 		vars = EZListView(view, 200@(ServerMeterView.height *2), "Larelasi - Variables" );
@@ -1141,17 +1174,22 @@ DomifareGui : ObjectGui {
 
 		//vars.setColors(Color.black, Color.clear, Color.black, Color.white, Color.white, Color.black, Color.black);
 
-		ServerMeterView.new(model.server, view, 0@0, 0, 2).view.resize_(6); // right
+		//ServerMeterView.new(model.server, view, 0@0, 0, 2).view.resize_(6); // right
+
+		//view.startRow;
+
+
 
 		view.startRow;
-
-
+		//inputLayout = HLayout(meter.view,
+		//	VLayout(textView, lineView, notation),
+		//	vars.view);
 
 		index = \thresh;
 		sliders[index] = EZSlider(view, ((view.innerBounds.width/2)-50)@20, index, \db,  {|ez|
 			model.thresh.set(ez.value.dbamp);
 		});
-		sliders[index].sliderView.resize_(8);
+		//sliders[index].sliderView.resize_(8);
 
 		index = \space;
 		sliders[index] = EZSlider(view, ((view.innerBounds.width/2)-50)@20, index, ControlSpec(0.1, 2, 0.1),
@@ -1159,7 +1197,7 @@ DomifareGui : ObjectGui {
 				model.space.set(ez.value);
 				model.changed(this, model.space);
 		});
-		sliders[index].sliderView.resize_(8);
+		//sliders[index].sliderView.resize_(8);
 
 		view.startRow;
 
@@ -1168,14 +1206,19 @@ DomifareGui : ObjectGui {
 			{|ez|
 				model.longspace.set(ez.value.dbamp);
 		});
-		sliders[index].sliderView.resize_(8);
+		//sliders[index].sliderView.resize_(8);
 
 		index = \minspace;
 		sliders[index] = EZSlider(view, ((view.innerBounds.width/2)-50)@20, index, ControlSpec(0.01, 0.2, 0.1),
 			{|ez|
 				model.minspace.set(ez.value);
 		});
-		sliders[index].sliderView.resize_(8);
+		//sliders[index].sliderView.resize_(8);
+
+		//sliderLayout = HLayout(
+		//	VLayout(sliders[\thresh].view, sliders[\space].view),
+		//	VLayout(sliders[\longspace].view, sliders[\minspace].view)
+		//);
 
 		//textView.bounds = Rect(0,0,
 		//	view.innerBounds - (ServerMeterView.getWidth(1,0) + ServerMeterView.getWidth(0,2)),
@@ -1195,9 +1238,169 @@ DomifareGui : ObjectGui {
 
 		//view.parent.scroll(autohidesScrollers:false, autoScrolls:false,
 		//	hasHorizontalScroller: false, hasVerticalScroller: false);
-		view.reflowDeep;
-		view.resize_(5);
+		//view.startRow;
+		// cheat sheet image goes here
+		example = Image.open(CleffView.path +/+ "inst.png");
+		ex1 = UserView(view,  (view.innerBounds.width-50)@250).drawFunc_({ example.drawInRect(Rect(10,10, example.width/2, example.height/2),  nil, 'sourceOver', 1); });
+		//view.reflowDeep;
+		//view.resize_(5);
+		//exampleLayout = HLayout(ex1);
 
+		//wholeLayout = VLayout(buttonLayout, inputLayout, sliderLayout, exampleLayout);
+		//view.view.layout = wholeLayout;
+		*/
+		//view = View();
+
+		view = View(viewHolder.view, viewHolder.view.parents.last.bounds);
+		//viewHolder.innerBounds = viewHolder.view.parents.last.bounds;
+		viewHolder.view.parents.last.onResize = { |v|
+			viewHolder.view.bounds = v.bounds;
+			v.bounds.height = v.bounds.height - 20;
+			view.bounds = v.bounds;
+			//viewHolder.innerBounds = v.bounds;
+		};
+
+
+		sliders = IdentityDictionary.new();
+
+
+		buttonLayout = HLayout(
+
+		 [run_button = Button().states_([
+			["Run ⏯"], ["Pause ⏸"]
+		]).action_({|but|
+			(but.value == 1).if({
+				// play
+				model.resume;
+			}, {
+				// pause
+				model.pause;
+			});
+		}), stretch:4],
+
+		[onsetButton = Button().states_([
+			["Require Onsets"], ["Onsets Required"]
+		]).action_({|but|
+			(but.value == 1).if({
+				// we want to require onsets
+				model.requireOnsets = true;
+			}, {
+				model.requireOnsets = false;
+			});
+		}), stretch:4],
+
+		// input method button
+		[Button().states_([
+			["Frequency Domain"],["Autocorrelation"]
+		]). action_({|but|
+			(but.value== 1).if ({
+				model.input_method = true;
+				"switched inputs".postln;
+			}, {
+				model.input_method = false;
+				"switched inputs".postln;
+			})
+		}), stretch:4],
+
+		[Button().states_([
+			["Strict"], ["Liberal"]
+		]). action_({|but|
+			(but.value == 1).if({
+				model.liberalise = true;
+				"more liberal".postln;
+			}, {
+				model.liberalise = false;
+				"less liberal".postln;
+			});
+		}), stretch:4],
+
+
+		rec_button = Button().states_([
+			[" ", Color.black, Color.clear],
+			["R", Color.black, Color.red]]);
+
+);
+
+			font = Font("Courier",18);
+			textView = TextView().autohidesScrollers_(false).font_(font);
+			textView.background = Color.black;
+			textView.setStringColor(Color.white); textView.stringColor_(Color.white);
+
+			lineView = BtText("Input: ").font_(font);
+			lineView.textField.value="";
+			lineView.setColors(Color.grey,Color.white,background: Color.grey(0.7));
+notation = CleffView();
+
+vars = BtListView( "Larelasi - Variables" );
+
+
+meter = ServerMeterView.new(model.server, meterView, 5@5, 1, 0).view;
+inputLayout = HLayout(
+[VLayout(nil, [meter, stretch:6], nil), stretch:1],
+	[ VLayout(
+		[VLayout([textView, stretch:4], lineView), stretch:4],
+		[notation, stretch:1]
+	), stretch:4],
+	//[VLayout([vars, stretch:6, align:\topRight]), stretch:1]);
+	[vars, stretch:1]);
+
+
+
+// ok, now it's added, make it work with the rest of the gui
+lineView = lineView.textField;
+
+
+		index = \thresh;
+		sliders[index] = BtSlider(index, \db,  {|ez|
+			model.thresh.set(ez.value.dbamp);
+		});
+
+		index = \space;
+		sliders[index] = BtSlider(index, ControlSpec(0.1, 2, 0.1),
+			{|ez|
+				model.space.set(ez.value);
+				model.changed(this, model.space);
+		});
+
+		index = \longspace;
+		sliders[index] =BtSlider(index, ControlSpec(1, 5, 1),
+			{|ez|
+				model.longspace.set(ez.value.dbamp);
+		});
+
+		index = \minspace;
+		sliders[index] = BtSlider(index, ControlSpec(0.01, 0.2, 0.1),
+			{|ez|
+				model.minspace.set(ez.value);
+		});
+
+		sliderLayout = HLayout(
+			VLayout(sliders[\thresh].view, sliders[\space].view),
+			VLayout(sliders[\longspace].view, sliders[\minspace].view)
+		);
+
+		// cheat sheet image goes here
+		examples = [
+			Image.open(CleffView.path +/+ "inst.png"),
+			Image.open(CleffView.path +/+ "inst2.png")
+		];
+
+		exViews = examples.collect({|example|
+			var ex;
+
+			ex = UserView().drawFunc_({ example.drawInRect(Rect(10,10, example.width/2, example.height/2),  nil, 'sourceOver', 1); });
+			ex.minHeight = example.height *0.52;
+			[ex, stretch:1]
+		});
+
+		exViews = exViews ++nil;
+
+		exampleLayout = HLayout(*exViews);
+
+		//wholeLayout = VLayout(buttonLayout, inputLayout, sliderLayout, exampleLayout);
+view.layout = VLayout([VLayout(buttonLayout, inputLayout, sliderLayout), stretch:4], [exampleLayout, stretch:1]);
+
+		//viewHolder.view = view;
 
 	}
 
@@ -1269,7 +1472,11 @@ DomifareGui : ObjectGui {
 
 	code_updated{|text|
 
-		AppClock.sched(0.0,{lineView.string = lineView.string ++ text;});
+		AppClock.sched(0.0,{
+			lineView.string = lineView.string ++ text;
+			notation.add(text);
+			nil;
+		});
 	}
 
 	code_error{|err|
@@ -1282,6 +1489,7 @@ DomifareGui : ObjectGui {
 
 		AppClock.sched(0.0,{
 			lineView.value = "";
+			notation.reset;
 		});
 
 		//err.throw();
@@ -1295,6 +1503,7 @@ DomifareGui : ObjectGui {
 
 		AppClock.sched(0.0,{
 			lineView.value = "";
+			notation.reset;
 		});
 	}
 
@@ -1342,6 +1551,98 @@ DomifareGui : ObjectGui {
 
 }
 
+
+// This class draws notes received
+CleffView {
+
+	classvar <path;
+	var <view, images, dict;
+
+	*initClass {
+		path = PathName(Domifare.filenameSymbol.asString).pathOnly +/+ "Notes";
+	}
+
+	*new {arg ...args;
+
+		^super.new.init(* args);
+	}
+
+	path {
+
+		^this.class.path;
+	}
+
+	init {| ... args|
+
+		view = UserView(*args);
+
+		dict = IdentityDictionary();
+		dict[\cleff] = Image.new(this.path +/+ "cleff.png");
+		dict[\do] =  Image.new(this.path +/+ "C.png");
+		dict[\re] =  Image.new(this.path +/+ "D.png");
+		dict[\mi] =  Image.new(this.path +/+ "E.png");
+		dict[\fa] =  Image.new(this.path +/+ "F.png");
+		dict[\sol] =  Image.new(this.path +/+ "G.png");
+		dict[\la] =  Image.new(this.path +/+ "A.png");
+		dict[\si] =  Image.new(this.path +/+ "B.png");
+
+		view.minHeight = dict[\si].height;
+
+		images = [\cleff];
+		//view.background = Color.blue;
+
+		view.drawFunc_({
+			var width = 10, height, point = 10@10, scale = 0.75, left = 10, top=10, img;
+			images.do({|letter, j|
+				img = dict[letter.asSymbol];
+				width = img.width*scale;
+				height = (img.height * scale);
+				//Pen.addOval(point);
+				//Pen.color = Color.hsv(0.9 * (1/(j+1)), 0.6, 1);
+
+				img.drawInRect(Rect(left.asInteger, top.asInteger, width.ceil.asInteger, height.ceil.asInteger),
+						nil, 'sourceOver', 1);
+				Pen.draw;
+
+				left= left + (width * scale).floor;
+				point.x = left;
+				"point % , space left: %".format(point, view.asView.bounds.width - point.x).debug(this);
+
+			});
+			Pen.draw;
+		});
+
+		//AppClock.sched(0, {this.reset; nil});
+		//this.reset;
+	}
+
+	reset {
+		view.clearDrawing;
+		images = [\cleff];
+		//AppClock.sched(0, { view.draw; nil; });
+	}
+
+	add {|text|
+
+		text = text.asString.toLower.asSymbol;
+		images = images ++ text;
+		view.refresh;
+	}
+
+	refresh {
+		view.refresh
+	}
+
+	width {
+		^view.parent.width;
+	}
+
+	asView{
+		^view
+	}
+
+
+}
 
 
 
@@ -1602,6 +1903,7 @@ DomifareLoop {
 				pd.dump;
 				//pd.isPlaying.not.if({
 				pd.play(clock, nil, quant);
+				isplay = true;
 				//});
 			});
 		})
@@ -1704,3 +2006,8 @@ DomifareLoop {
 
 
 }
+
+
+//+ View { innerBounds{ ^this.bounds } startRow{} view { ^this } }
+//+ EZGui { asView{ ^this.view } }
++ ServerMeterView { asView{^this.view }}
